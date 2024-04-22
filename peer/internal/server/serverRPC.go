@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rsa"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,10 +21,11 @@ import (
 	"net/http"
 	"orca-peer/internal/fileshare"
 	orcaHash "orca-peer/internal/hash"
+	orcaStatus "orca-peer/internal/status"
 	"os"
+	"strings"
 	"sync"
 	"time"
-	"strings"
 
 	"google.golang.org/grpc"
 
@@ -89,11 +91,36 @@ func CreateMarketServer(stdPrivKey *rsa.PrivateKey, dhtPort string, rpcPort stri
 
 	bootstrapPeers := ReadBootstrapPeers()
 
-	// Start a DHT, for now we will start in client mode until we can implement a way to
-	// detect if we are behind a NAT or not to run in server mode.
+
+	//Check if behind a NAT. If not, we set a flag to start in server mode
+	locationJsonString := orcaStatus.GetLocationData()
+	var locationJson map[string]interface{}
+	err = json.Unmarshal([]byte(locationJsonString), &locationJson)
+	if err != nil {
+		fmt.Println("Unable to establish user IP, please try again")
+		return
+	}
+	publicIp := locationJson["ip"].(string)
+	isServer := false
+	for _, addr := range host.Addrs() {
+		myIp := strings.Split(addr.String(), "/")[2]
+		// fmt.Println("Market NAT test. Here's my public IP: ", publicIp, myIp)
+		if publicIp == myIp{
+			if publicIp == myIp{
+				fmt.Println("Public IP Found. Starting market DHT in server mode.")
+				isServer = true
+				break
+			}
+		}
+	}
+
 	var validator record.Validator = OrcaValidator{}
 	var options []dht.Option
-	options = append(options, dht.Mode(dht.ModeClient))
+	if isServer {
+		options = append(options, dht.Mode(dht.ModeServer))
+	} else {
+		options = append(options, dht.Mode(dht.ModeClient))
+	}
 	options = append(options, dht.ProtocolPrefix("orcanet/market"), dht.Validator(validator))
 	kDHT, err := dht.New(ctx, host, options...)
 	if err != nil {
