@@ -11,19 +11,23 @@ import (
 	orcaBlockchain "orca-peer/internal/blockchain"
 	"orca-peer/internal/hash"
 	"strings"
-	orcaJobs "orca-peer/internal/jobs"
 	orcaHash "orca-peer/internal/hash"
+	orcaJobs "orca-peer/internal/jobs"
 	"os"
 	"path/filepath"
 )
 
 type Client struct {
-	name_map hash.NameMap
+	name_map   hash.NameMap
+	PublicKey  *rsa.PublicKey
+	PrivateKey *rsa.PrivateKey
 }
 
 func NewClient(path string) *Client {
 	return &Client{
-		name_map: *hash.NewNameStore(path),
+		name_map:   *hash.NewNameStore(path),
+		PublicKey:  nil,
+		PrivateKey: nil,
 	}
 }
 
@@ -101,6 +105,75 @@ func SendTransaction(price float64, ip string, port string, publicKey *rsa.Publi
 	defer resp.Body.Close()
 
 }
+// func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walletAddress string, price string, passKey string, jobId string) error {
+// 	/*
+// 		file_hash := client.name_map.GetFileHash(filename)
+// 		if file_hash == "" {
+// 			fmt.Println("Error: do not have hash for the file")
+// 			return
+// 		}
+// 	*/
+
+// 	// Create the directory if it doesn't exist
+// 	err := os.MkdirAll("./files/requested/", 0755)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+
+// 	// Create file
+// 	destFile, err := os.Create("./files/requested/" + file_hash)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer destFile.Close()
+
+// 	chunkIndex := 0
+// 	for {
+// 		maxChunk, data, err := client.getChunkData(ip, port, file_hash, chunkIndex)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		err = client.sendTransactionFee(price, walletAddress, passKey)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		if jobId != "" {
+// 			priceInt, err := strconv.ParseInt(price, 10, 64)
+// 			if err != nil {
+// 				fmt.Println(err)
+// 			} else {
+// 				if client.PublicKey != nil && client.PrivateKey != nil {
+// 					SendTransaction(float64(priceInt), ip, string(port), client.PublicKey, client.PrivateKey)
+// 				}
+// 				orcaJobs.UpdateJobCost(jobId, int(priceInt))
+// 			}
+// 		}
+// 		if _, err := destFile.Write(data); err != nil {
+// 			return err
+// 		}
+
+// 		chunkIndex++
+// 		if chunkIndex == maxChunk {
+// 			break
+// 		}
+// 		if jobId != "" {
+// 			status := orcaJobs.GetJobStatus(jobId)
+// 			if status == "terminated" {
+// 				return nil
+// 			} else if status == "paused" {
+// 				for {
+// 					time.Sleep(10 * time.Second)
+// 					if orcaJobs.GetJobStatus(jobId) != "paused" {
+// 						break
+// 					}
+// 				}
+// 			}
+// 		}
+// 	}
+
+// 	fmt.Printf("\nFile %s downloaded successfully!\n> ", file_hash)
+// 	return nil
+// }
 
 func (client *Client) RequestStorage(ip, port, filename string) (string, error) {
 	// Read file content
@@ -281,6 +354,7 @@ func (client *Client) AddJob(ip string, httpPort string, file_hash string, peerM
 		return "", err
 	}
 	defer resp.Body.Close()
+
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {

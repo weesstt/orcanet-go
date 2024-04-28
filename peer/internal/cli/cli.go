@@ -3,14 +3,19 @@ package cli
 import (
 	"bufio"
 	"crypto/rsa"
+	// "crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
+	// "log"
 	"net"
+	"net/http"
 	orcaClient "orca-peer/internal/client"
 	"orca-peer/internal/fileshare"
 	orcaHash "orca-peer/internal/hash"
 	"orca-peer/internal/server"
 	orcaServer "orca-peer/internal/server"
+
 	orcaStatus "orca-peer/internal/status"
 	orcaStore "orca-peer/internal/store"
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
@@ -20,12 +25,11 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"net/http"
-	"io"
 )
 
 var (
-	ip string
+	ip     string
+	Client *orcaClient.Client
 )
 
 func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.PrivateKey, orcaNetAPIProc *exec.Cmd, startAPIRoutes func(*map[string]fileshare.FileInfo)) {
@@ -81,13 +85,15 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 		fmt.Printf("%s/p2p/%s\n", addr, host.ID())
 	}
 
-	go orcaServer.StartServer(httpPort, rpcPort, serverReady, &confirming, &confirmation, libp2pPrivKey, startAPIRoutes, host)
+	Client = orcaClient.NewClient("files/names/")
+	Client.PrivateKey = privKey
+	Client.PublicKey = pubKey
+	go orcaServer.StartServer(httpPort, rpcPort, serverReady, &confirming, &confirmation, libp2pPrivKey, passKey, startAPIRoutes, host)
 	<-serverReady
 	fmt.Println("Welcome to Orcanet!")
 	fmt.Println("Dive In and Explore! Type 'help' for available commands.")
 
 	reader := bufio.NewReader(os.Stdin)
-	client := orcaClient.NewClient("files/names/")
 
 	for {
 		fmt.Print("> ")
@@ -138,31 +144,26 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 					continue
 				}
 				fmt.Printf("%s - %d OrcaCoin\n", bestHolder.GetIp(), bestHolder.GetPrice())
-				// Trying to convert bytes into readable key string
-				// IDK what format is needed
-				/*
-					publicKey, err := crypto.UnmarshalRsaPublicKey(bestHolder.Id)
-					if err != nil {
-						fmt.Println("Error loading in key file:", err)
-						os.Exit(1)
-					}
-					fmt.Printf("%s ", publicKey.Type().String())
-					pubKeyInterface, err := x509.ParsePKIXPublicKey(bestHolder.Id)
-					if err != nil {
-						log.Fatal("failed to parse DER encoded public key: ", err)
-					}
-					rsaPubKey, ok := pubKeyInterface.(*rsa.PublicKey)
-					if !ok {
-						log.Fatal("not an RSA public key")
-					}
-					//rsaPubKey.N.String(), rsaPubKey.E
-				*/
-				jobId, err := client.AddJob("localhost", httpPort, args[0], bestHolder.GetIp())
+				// pubKeyInterface, err := x509.ParsePKIXPublicKey(bestHolder.Id)
+				// if err != nil {
+				// 	log.Fatal("failed to parse DER encoded public key: ", err)
+				// }
+				// rsaPubKey, ok := pubKeyInterface.(*rsa.PublicKey)
+				// if !ok {
+				// 	log.Fatal("not an RSA public key")
+				// }
+				// key := orcaServer.ConvertKeyToString(rsaPubKey.N, rsaPubKey.E)
+				// err = Client.GetFileOnce(bestHolder.GetIp(), bestHolder.GetPort(), args[0], key, fmt.Sprintf("%d", bestHolder.GetPrice()), passKey, "")
+				// if err != nil {
+				// 	fmt.Printf("Error getting file %s", err)
+				// }
+				
+				jobId, err := Client.AddJob("localhost", httpPort, args[0], bestHolder.GetIp())
 				if err != nil {
 					fmt.Printf("Error getting file %s", err)
 				}
 				
-				err = client.StartJobs("localhost", httpPort, []string{jobId})
+				err = Client.StartJobs("localhost", httpPort, []string{jobId})
 				if err != nil {
 					fmt.Printf("Error getting file %s\n", err)
 				}
@@ -202,7 +203,7 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 			}
 		case "import":
 			if len(args) == 1 {
-				err := client.ImportFile(args[0])
+				err := Client.ImportFile(args[0])
 				if err != nil {
 					fmt.Println(err)
 				}
@@ -269,13 +270,13 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 					continue
 				}
 
-				go client.GetDirectory(args[0], int32(port), args[2])
+				go Client.GetDirectory(args[0], int32(port), args[2])
 			} else {
 				fmt.Println("Usage: getdir [ip] [port] [path]")
 			}
 		case "storedir":
 			if len(args) == 3 {
-				go client.StoreDirectory(args[0], args[1], args[2])
+				go Client.StoreDirectory(args[0], args[1], args[2])
 			} else {
 				fmt.Println("Usage: storedir [ip] [port] [path]")
 			}

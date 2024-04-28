@@ -1,11 +1,16 @@
 package server
 
 import (
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
+	orcaClient "orca-peer/internal/client"
 	"orca-peer/internal/fileshare"
 	"orca-peer/internal/hash"
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
@@ -14,12 +19,16 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const keyServerAddr = "serverAddr"
 
 var (
 	eventChannel chan bool
+	Client       *orcaClient.Client
+	PassKey      string
 )
 
 type HTTPServer struct {
@@ -39,7 +48,6 @@ type Transaction struct {
 
 func handleTransaction(w http.ResponseWriter, r *http.Request) {
 	// Read the request body
-	fmt.Println("Handling a transaction...")
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Error reading request body", http.StatusBadRequest)
@@ -49,7 +57,6 @@ func handleTransaction(w http.ResponseWriter, r *http.Request) {
 
 	// Print the received byte string
 	var data TransactionFile
-	fmt.Println("Received byte string:")
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		fmt.Println("Error unmarshalling JSON:", err)
@@ -67,7 +74,6 @@ func handleTransaction(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Error writing transaction to file:", err)
 		return
 	}
-	fmt.Println("Data in struct:", data)
 	error := hash.VerifySignature(data.UnlockedTransaction, data.Bytes, publicKey)
 	if error != nil {
 		fmt.Println("Properly Hashed Transaction")
@@ -91,13 +97,12 @@ func handleTransaction(w http.ResponseWriter, r *http.Request) {
 }
 
 // Start HTTP/RPC server
-func StartServer(httpPort string, rpcPort string, serverReady chan bool, confirming *bool, confirmation *string, privKey libp2pcrypto.PrivKey, startAPIRoutes func(*map[string]fileshare.FileInfo), host host.Host) {
+func StartServer(httpPort string, rpcPort string, serverReady chan bool, confirming *bool, confirmation *string, privKey libp2pcrypto.PrivKey, passkey string, startAPIRoutes func(*map[string]fileshare.FileInfo), host host.Host) {
 	eventChannel = make(chan bool)
 	pubKey := privKey.GetPublic()
 	server := HTTPServer{
 		storage: hash.NewDataStore("files/stored/"),
 	}
-
 	fileShareServer := FileShareServerNode{
 		StoredFileInfoMap: make(map[string]fileshare.FileInfo),
 	}
@@ -116,6 +121,8 @@ func StartServer(httpPort string, rpcPort string, serverReady chan bool, confirm
 	http.HandleFunc("/get-peer", getPeer)
 	http.HandleFunc("/find-peer", FindPeersForHash)
 	http.HandleFunc("/remove-peer", removePeer)
+
+	http.HandleFunc("/add-job", AddJobHandler)
 
 	fmt.Printf("HTTP Listening on port %s...\n", httpPort)
 	go CreateMarketServer(rpcPort, serverReady, &fileShareServer, host, pubKey, privKey)
@@ -181,22 +188,22 @@ func (server *HTTPServer) sendFile(w http.ResponseWriter, r *http.Request, confi
 	filename := r.URL.Path[len("/requestFile/"):]
 
 	// Ask for confirmation
-	*confirming = true
-	fmt.Printf("You have just received a request to send file '%s'. Do you want to send the file? (yes/no): ", filename)
+	// *confirming = true
+	// fmt.Printf("You have just received a request to send file '%s'. Do you want to send the file? (yes/no): ", filename)
 
-	// Check if confirmation is received
-	for *confirmation != "yes" {
-		if *confirmation != "" {
-			http.Error(w, fmt.Sprintf("Client declined to send file '%s'.", filename), http.StatusUnauthorized)
-			*confirmation = ""
-			*confirming = false
-			return
-		}
-	}
-	*confirmation = ""
-	*confirming = false
+	// // Check if confirmation is received
+	// for *confirmation != "yes" {
+	// 	if *confirmation != "" {
+	// 		http.Error(w, fmt.Sprintf("Client declined to send file '%s'.", filename), http.StatusUnauthorized)
+	// 		*confirmation = ""
+	// 		*confirming = false
+	// 		return
+	// 	}
+	// }
+	// *confirmation = ""
+	// *confirming = false
 
-	file, err := os.Open("./files/" + filename)
+	file, err := os.Open("./files/stored/" + filename)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -345,5 +352,116 @@ func getFile(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Write a response indicating that no filename was found
 		io.WriteString(w, "No filename found\n")
+	}
+}
+func ConvertKeyToString(n *big.Int, e int) string {
+	N := n // Replace with your actual modulus
+	E := e // Replace with your actual public exponent
+
+	// Create an RSA public key using the modulus and exponent
+	publicKey := rsa.PublicKey{
+		N: N,
+		E: E,
+	}
+
+	// Marshal the public key into DER format
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&publicKey)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create a PEM block for the public key
+	publicKeyPEM := pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: publicKeyBytes,
+	}
+
+	// Write the PEM-encoded public key to a file (or any io.Writer)
+	publicKeyString := string(pem.EncodeToMemory(&publicKeyPEM))
+	return publicKeyString
+}
+func jobRoutine(jobId string, hash string, peerId string) {
+	holders, err := SetupCheckHolders(hash)
+	if err != nil {
+		fmt.Printf("Error finding holders for file: %x", err)
+		return
+	}
+	var bestHolder *fileshare.User
+	var selectedHolder *fileshare.User
+	bestHolder = nil
+	selectedHolder = nil
+	for _, holder := range holders.Holders {
+		if bestHolder == nil {
+			bestHolder = holder
+		} else if holder.GetPrice() < bestHolder.GetPrice() {
+			bestHolder = holder
+		}
+		if string(holder.Id) == peerId {
+			selectedHolder = holder
+		}
+	}
+	if bestHolder == nil && selectedHolder == nil {
+		fmt.Println("Unable to find holder for this hash.")
+		return
+	}
+	if selectedHolder != nil {
+		bestHolder = selectedHolder
+	}
+	fmt.Printf("%s - %d OrcaCoin\n", bestHolder.GetIp(), bestHolder.GetPrice())
+
+	// pubKeyInterface, err := x509.ParsePKIXPublicKey(bestHolder.Id)
+	// if err != nil {
+	// 	log.Fatal("failed to parse DER encoded public key: ", err)
+	// }
+	// rsaPubKey, ok := pubKeyInterface.(*rsa.PublicKey)
+	// if !ok {
+	// 	log.Fatal("not an RSA public key")
+	// }
+	// key := ConvertKeyToString(rsaPubKey.N, rsaPubKey.E)
+	//err = Client.GetFileOnce(bestHolder.GetIp(), bestHolder.GetPort(), hash, key, fmt.Sprintf("%d", bestHolder.GetPrice()), PassKey, jobId)
+	orcaJobs.StartJob(jobId)
+	if err != nil {
+		fmt.Printf("Error getting file %s", err)
+	}
+}
+
+func AddJobHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		var payload orcaJobs.AddJobReqPayload
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&payload); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			writeStatusUpdate(w, "Cannot marshal payload in Go object. Does the payload have the correct body structure?")
+			return
+		}
+		id := uuid.New()
+		timeString := time.Now().Format(time.RFC3339)
+		newJob := orcaJobs.Job{
+			FileHash:        payload.FileHash,
+			JobId:           id.String(),
+			TimeQueued:      timeString,
+			Status:          "active",
+			AccumulatedCost: 0,
+			ProjectedCost:   -1,
+			ETA:             -1,
+			PeerId:          payload.PeerId,
+		}
+		orcaJobs.AddJob(newJob)
+		go jobRoutine(newJob.JobId, payload.FileHash, payload.PeerId)
+		w.WriteHeader(http.StatusOK)
+		response := orcaJobs.AddJobResPayload{JobId: newJob.JobId}
+		jsonData, err := json.Marshal(response)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			writeStatusUpdate(w, "Failed to convert JSON Data into a string")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonData)
+	} else {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeStatusUpdate(w, "Only PUT requests will be handled.")
+		return
 	}
 }

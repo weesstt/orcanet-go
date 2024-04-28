@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"sync"
 	"time"
-	"github.com/google/uuid"
 	"github.com/libp2p/go-libp2p/core/host"
 	"orca-peer/internal/fileshare"
 )
@@ -126,38 +125,6 @@ type AddJobReqPayload struct {
 
 type AddJobResPayload struct {
 	JobId string `json:"jobID"`
-}
-
-func AddJobHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPut {
-		var payload AddJobReqPayload
-		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&payload); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			writeStatusUpdate(w, "Cannot marshal payload in Go object. Does the payload have the correct body structure?")
-			return
-		}
-		id := uuid.New()
-		timeString := time.Now().Format(time.RFC3339)
-		newJob := Job{
-			FileHash:        payload.FileHash,
-			JobId:           id.String(),
-			TimeQueued:      timeString,
-			Status:          "paused",
-			AccumulatedCost: 0,
-			ProjectedCost:   -1,
-			ETA:             -1,
-			PeerId:          payload.PeerId,
-		}
-		AddJob(newJob)
-		fmt.Println("Added job with ID %s\n", id)
-		w.WriteHeader(http.StatusOK)
-		writeStatusUpdate(w, "Successfully added job.")
-	} else {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		writeStatusUpdate(w, "Only PUT requests will be handled.")
-		return
-	}
 }
 
 type JobInfoReqPayload struct {
@@ -308,7 +275,6 @@ func InitJobRoutes() {
 	http.HandleFunc("/terminate-jobs", TerminateJobsHandler)
 	http.HandleFunc("/pause-jobs", PauseJobsHandler)
 	http.HandleFunc("/job-info", JobInfoHandler)
-	http.HandleFunc("/add-job", AddJobHandler)
 	http.HandleFunc("/start-jobs", StartJobsHandler)
 	http.HandleFunc("/remove-from-history", RemoveFromHistoryHandler)
 	http.HandleFunc("/clear-history", ClearHistoryHandler)
