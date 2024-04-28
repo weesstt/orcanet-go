@@ -330,7 +330,7 @@ func sendFileToConsumer(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func SetupRegisterFile(filePath string, fileName string, amountPerMB int64, ip string, port int32) error {
+func SetupRegisterFile(filePath string, fileName string, amountPerMB int64, hostMultiAddr string) error {
 	srcFilePath := fmt.Sprintf("./files/%s", fileName)
 	osFileInfo, err := os.Stat(srcFilePath)
 	if err != nil {
@@ -356,14 +356,12 @@ func SetupRegisterFile(filePath string, fileName string, amountPerMB int64, ip s
 	fileReq := fileshare.RegisterFileRequest{}
 	fileReq.User = &fileshare.User{}
 	fileReq.User.Price = amountPerMB
-	fileReq.User.Ip = ip
-	fileReq.User.Port = port
+	fileReq.User.Ip = hostMultiAddr
 	fileReq.FileKey = fileKey
 	_, err = serverStruct.RegisterFile(ctx, &fileReq)
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 

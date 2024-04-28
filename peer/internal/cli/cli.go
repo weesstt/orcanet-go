@@ -13,6 +13,9 @@ import (
 	orcaServer "orca-peer/internal/server"
 	orcaStatus "orca-peer/internal/status"
 	orcaStore "orca-peer/internal/store"
+	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/multiformats/go-multiaddr"
+	"github.com/libp2p/go-libp2p"
 	"os"
 	"os/exec"
 	"strconv"
@@ -49,7 +52,36 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 		return
 	}
 	ip = locationJson["ip"].(string)
-	go orcaServer.StartServer(httpPort, dhtPort, rpcPort, serverReady, &confirming, &confirmation, privKey, startAPIRoutes)
+
+	//Get libp2p wrapped privKey
+	libp2pPrivKey, _, err := libp2pcrypto.KeyPairFromStdKey(privKey)
+	if err != nil {
+		panic("Could not generate libp2p wrapped key from standard private key.")
+	}
+
+	//Construct multiaddr from string and create host to listen on it
+	sourceMultiAddr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", dhtPort))
+	opts := []libp2p.Option{
+		libp2p.ListenAddrStrings(sourceMultiAddr.String()),
+		libp2p.Identity(libp2pPrivKey), //derive id from private key
+	}
+
+	host, err := libp2p.New(opts...)
+	if err != nil {
+		panic(err)
+	}
+
+	hostMultiAddr := ""
+	fmt.Printf("\nlibp2p DHT Host ID: %s\n", host.ID())
+	fmt.Println("DHT Market Multiaddr (if in server mode):")
+	for _, addr := range host.Addrs() {
+		if !strings.Contains(fmt.Sprintf("%s", addr), "127.0.0.1") {
+			hostMultiAddr = fmt.Sprintf("%s/p2p/%s\n", addr, host.ID())
+		}
+		fmt.Printf("%s/p2p/%s\n", addr, host.ID())
+	}
+
+	go orcaServer.StartServer(httpPort, rpcPort, serverReady, &confirming, &confirmation, libp2pPrivKey, startAPIRoutes, host)
 	<-serverReady
 	fmt.Println("Welcome to Orcanet!")
 	fmt.Println("Dive In and Explore! Type 'help' for available commands.")
@@ -125,10 +157,13 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 					}
 					//rsaPubKey.N.String(), rsaPubKey.E
 				*/
-				err = client.GetFileOnce(bestHolder.GetIp(), bestHolder.GetPort(), args[0], string(bestHolder.Id), fmt.Sprintf("%d", bestHolder.GetPrice()), passKey)
+				jobId, err := client.AddJob("localhost", httpPort, args[0], bestHolder.GetIp())
 				if err != nil {
 					fmt.Printf("Error getting file %s", err)
 				}
+
+				err = client.StartJobs("localhost", httpPort, []string{jobId})
+
 			} else {
 				fmt.Println("Usage: get [fileHash]")
 			}
@@ -150,12 +185,11 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 					fmt.Println("Error parsing in cost per MB: must be a int64", err)
 					continue
 				}
-				port, err := strconv.ParseInt(httpPort, 10, 64)
 				if err != nil {
 					fmt.Println("Error parsing in port: must be a integer.", err)
 					continue
 				}
-				err = server.SetupRegisterFile(filePath, fileName, costPerMB, ip, int32(port))
+				err = server.SetupRegisterFile(filePath, fileName, costPerMB, hostMultiAddr)
 				if err != nil {
 					fmt.Printf("Unable to register file on DHT: %s", err)
 				} else {

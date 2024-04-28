@@ -10,10 +10,11 @@ import (
 	"net/http"
 	orcaBlockchain "orca-peer/internal/blockchain"
 	"orca-peer/internal/hash"
+	"strings"
+	orcaJobs "orca-peer/internal/jobs"
 	orcaHash "orca-peer/internal/hash"
 	"os"
 	"path/filepath"
-	"strconv"
 )
 
 type Client struct {
@@ -100,51 +101,6 @@ func SendTransaction(price float64, ip string, port string, publicKey *rsa.Publi
 	defer resp.Body.Close()
 
 }
-func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walletAddress string, price string, passKey string) error {
-	/*
-		file_hash := client.name_map.GetFileHash(filename)
-		if file_hash == "" {
-			fmt.Println("Error: do not have hash for the file")
-			return
-		}
-	*/
-
-	// Create the directory if it doesn't exist
-	err := os.MkdirAll("./files/requested/", 0755)
-	if err != nil {
-		panic(err)
-	}
-
-	// Create file
-	destFile, err := os.Create("./files/requested/" + file_hash)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	chunkIndex := 0
-	for {
-		maxChunk, data, err := client.getChunkData(ip, port, file_hash, chunkIndex)
-		if err != nil {
-			return err
-		}
-		err = client.sendTransactionFee(price, walletAddress, passKey)
-		if err != nil {
-			return err
-		}
-		if _, err := destFile.Write(data); err != nil {
-			return err
-		}
-
-		chunkIndex++
-		if chunkIndex == maxChunk {
-			break
-		}
-	}
-
-	fmt.Printf("\nFile %s downloaded successfully!\n> ", file_hash)
-	return nil
-}
 
 func (client *Client) RequestStorage(ip, port, filename string) (string, error) {
 	// Read file content
@@ -185,27 +141,27 @@ func (client *Client) GetDirectory(ip string, port int32, path string) {
 	// }
 }
 
-func (client *Client) getDirectory(ip string, port int32, dir_tree map[string]any) error {
-	for path, v := range dir_tree {
-		switch val := v.(type) {
-		case string:
-			err := os.MkdirAll(filepath.Join("./files/requested/", filepath.Dir(path)), 0755)
-			if err != nil {
-				return err
-			}
-			// need to fix to match new blockchain requirements
-			err = client.GetFileOnce(ip, port, path, "", "", "")
-			if err != nil {
-				return err
-			}
-		case map[string]any:
-			client.getDirectory(ip, port, val)
-		default:
-			panic("Bug: dir_tree should only have strings or recursive dir_tree")
-		}
-	}
-	return nil
-}
+// func (client *Client) getDirectory(ip string, port int32, dir_tree map[string]any) error {
+// 	for path, v := range dir_tree {
+// 		switch val := v.(type) {
+// 		case string:
+// 			err := os.MkdirAll(filepath.Join("./files/requested/", filepath.Dir(path)), 0755)
+// 			if err != nil {
+// 				return err
+// 			}
+// 			// need to fix to match new blockchain requirements
+// 			err = client.GetFileOnce(ip, port, path, "", "", "")
+// 			if err != nil {
+// 				return err
+// 			}
+// 		case map[string]any:
+// 			client.getDirectory(ip, port, val)
+// 		default:
+// 			panic("Bug: dir_tree should only have strings or recursive dir_tree")
+// 		}
+// 	}
+// 	return nil
+// }
 
 func (client *Client) StoreDirectory(ip, port, path string) {
 	dir_tree_hashes, err := client.storeDirectory(ip, port, filepath.Join("./files/documents/", path))
@@ -307,39 +263,64 @@ func (client *Client) sendTransactionFee(coins string, address string, senderWal
 	return err
 }
 
-// int return value will be the length of chunk indexes from response header
-func (client *Client) getChunkData(ip string, port int32, file_hash string, chunk int) (int, []byte, error) {
-	resp, err := http.Get(fmt.Sprintf("http://%s:%d/get-file?hash=%s&chunk-index=%d", ip, port, file_hash, chunk))
+func (client *Client) AddJob(ip string, httpPort string, file_hash string, peerMultiaddr string) (string, error) {
+	payload := orcaJobs.AddJobReqPayload{
+		FileHash: file_hash,
+		PeerId: peerMultiaddr,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return "", err
+	}
+	
+	resp, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%s/add-job", ip, httpPort), strings.NewReader(string(data)))
 	if err != nil {
 		fmt.Printf("Error: %s\n", err)
-		return -1, nil, err
+		return "", err
 	}
-
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			fmt.Println("Error reading response body:", err)
-			return -1, nil, err
-		}
-		fmt.Printf("\nError: %s\n ", body)
-		return -1, nil, errors.New("http status not ok\n")
-	}
-
-	data := bytes.NewBuffer([]byte{})
-
-	_, err = io.Copy(data, resp.Body)
+	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return -1, nil, err
-	}
+		fmt.Println("Error reading response body:", err)
+		return "", err
+	}	
 
-	chunkLengths, err := strconv.Atoi(resp.Header.Get("X-Chunks-Length"))
+	respPayload := orcaJobs.AddJobResPayload{}
+	err = json.Unmarshal(responseBody, respPayload)
 	if err != nil {
-		return -1, nil, err
+		fmt.Printf("Error unmarshaling add job res payload: %s\n", err)
 	}
 
-	return chunkLengths, data.Bytes(), nil
+	return respPayload.JobId, nil
+}
+
+func (client *Client) StartJobs(ip string, httpPort string, jobIds []string) error {
+	reqBody := make([]orcaJobs.JobInfoReqPayload, 0)
+	
+	for _, jobId := range jobIds {
+		payload := orcaJobs.JobInfoReqPayload{
+			JobId: jobId,
+		}	
+		reqBody = append(reqBody, payload)
+	}
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return err
+	}
+	
+	resp, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%s/start-jobs", ip, httpPort), strings.NewReader(string(data)))
+	if err != nil {
+		fmt.Printf("Error: %s\n", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	return nil
 }
 
 // func (client *Client) getData(ip string, port int32, file_hash string) ([]byte, error) {

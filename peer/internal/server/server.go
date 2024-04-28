@@ -1,7 +1,6 @@
 package server
 
 import (
-	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,8 +9,7 @@ import (
 	"orca-peer/internal/fileshare"
 	"orca-peer/internal/hash"
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/multiformats/go-multiaddr"
-	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/host"
 	orcaJobs "orca-peer/internal/jobs"
 	"os"
 	"path/filepath"
@@ -93,35 +91,9 @@ func handleTransaction(w http.ResponseWriter, r *http.Request) {
 }
 
 // Start HTTP/RPC server
-func StartServer(httpPort string, dhtPort string, rpcPort string, serverReady chan bool, confirming *bool, confirmation *string, stdPrivKey *rsa.PrivateKey, startAPIRoutes func(*map[string]fileshare.FileInfo)) {
+func StartServer(httpPort string, rpcPort string, serverReady chan bool, confirming *bool, confirmation *string, privKey libp2pcrypto.PrivKey, startAPIRoutes func(*map[string]fileshare.FileInfo), host host.Host) {
 	eventChannel = make(chan bool)
-	
-	//Get libp2p wrapped privKey
-	privKey, _, err := libp2pcrypto.KeyPairFromStdKey(stdPrivKey)
-	if err != nil {
-		panic("Could not generate libp2p wrapped key from standard private key.")
-	}
-
 	pubKey := privKey.GetPublic()
-
-	//Construct multiaddr from string and create host to listen on it
-	sourceMultiAddr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", dhtPort))
-	opts := []libp2p.Option{
-		libp2p.ListenAddrStrings(sourceMultiAddr.String()),
-		libp2p.Identity(privKey), //derive id from private key
-	}
-
-	host, err := libp2p.New(opts...)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Printf("\nlibp2p DHT Host ID: %s\n", host.ID())
-	fmt.Println("DHT Market Multiaddr (if in server mode):")
-	for _, addr := range host.Addrs() {
-		fmt.Printf("%s/p2p/%s\n", addr, host.ID())
-	}
-
 	server := HTTPServer{
 		storage: hash.NewDataStore("files/stored/"),
 	}

@@ -190,7 +190,7 @@ func JobInfoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func StartJobsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPatch {
+	if r.Method == http.MethodPut {
 		var jobIds []JobInfoReqPayload
 		decoder := json.NewDecoder(r.Body)
 		if err := decoder.Decode(&jobIds); err != nil {

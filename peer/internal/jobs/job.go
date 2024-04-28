@@ -231,7 +231,7 @@ func readData(rw *bufio.ReadWriter){
 		}
 		hash := fileChunk.FileHash
 	
-		file, err := os.OpenFile("./files/stored/" + hash, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		file, err := os.OpenFile("./files/requested/" + hash, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		defer file.Close()
 	
 		_, err = file.Write(fileChunk.Data)
