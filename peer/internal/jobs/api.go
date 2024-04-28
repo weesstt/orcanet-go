@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"sync"
 	"time"
-
 	"github.com/google/uuid"
+	"github.com/libp2p/go-libp2p/core/host"
+	"orca-peer/internal/fileshare"
 )
 
 type Job struct {
@@ -21,20 +22,39 @@ type Job struct {
 	PeerId          string `json:"peer"`
 }
 
+type FileChunkRequest struct {
+	FileHash        string `json:"fileHash"`
+	ChunkIndex           int `json:"chunkIndex"`
+	JobId 				string `json:"jobId"`
+}
+
+type FileChunk struct {
+	FileHash        string `json:"fileHash"`
+	ChunkIndex           int `json:"chunkIndex"`
+	MaxChunk           int `json:"chunkIndex"`
+	JobId              string `json:"jobId"`
+	Data               []byte `json:"data"`
+}
+
 type JobManager struct {
 	Jobs    []Job
 	Mutex   sync.Mutex
 	Changed bool
+	Host host.Host
+	StoredFileInfoMap *map[string]fileshare.FileInfo
 }
 
 var Manager JobManager
 
-func InitPeriodicJobSave() {
+func InitPeriodicJobSave(host host.Host, fileInfoMap *map[string]fileshare.FileInfo) {
 	Manager = JobManager{
 		Jobs:    make([]Job, 0), // Initialize an empty slice of jobs
 		Mutex:   sync.Mutex{},   // Initialize a mutex
 		Changed: false,
+		Host: host,
+		StoredFileInfoMap: fileInfoMap, 
 	}
+
 	for {
 		time.Sleep(10 * time.Second)
 		Manager.Mutex.Lock()
@@ -44,6 +64,7 @@ func InitPeriodicJobSave() {
 		Manager.Mutex.Unlock()
 	}
 }
+
 func writeStatusUpdate(w http.ResponseWriter, message string) {
 	responseMsg := map[string]interface{}{
 		"status": message,
@@ -178,7 +199,7 @@ func StartJobsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, jobId := range jobIds {
-			err := StartJob(jobId.JobId)
+			err := StartJob(jobId.JobId, )
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				writeStatusUpdate(w, err.Error())
