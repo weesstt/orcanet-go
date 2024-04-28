@@ -551,9 +551,10 @@ func readData(rw *bufio.ReadWriter){
 		for {
 			buffer := make([]byte, 1024)
 			bytesRead, err := rw.Read(buffer)
+			fmt.Printf("Read %d bytes\n", bytesRead)
 			if err != nil {
 				fmt.Println("err")
-				
+				break
 			}
 			if bytesRead == 0 {
 				break

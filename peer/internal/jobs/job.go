@@ -13,7 +13,6 @@ import (
 	"log"
 	"fmt"
 	"context"
-	"strings"
 )
 
 func AddJob(job Job) {
@@ -127,14 +126,42 @@ func StartJob(jobId string) error {
 			}
 
 			host.Peerstore().AddAddrs(peer.ID, peer.Addrs, peerstore.AddressTTL)
-			_, err = host.NewStream(context.Background(), peer.ID, protocol.ID("orcanet-fileshare/1.0/" + job.FileHash))
+
+			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), handleStream)
+			s, err := host.NewStream(context.Background(), peer.ID, protocol.ID("orcanet-fileshare/1.0/" + job.FileHash))
 			if err != nil {
 				log.Println(err)
 				Manager.Mutex.Unlock()
 				return err
 			}
 
-			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), handleStream)
+			rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
+			Manager.Mutex.Unlock()
+			job, err := FindJob(jobId)
+			Manager.Mutex.Lock()
+			if err != nil {
+				fmt.Println("Error:", err)
+				return err
+			}
+
+			fmt.Println("found job and read writer")
+
+			fileChunkReq := FileChunkRequest{
+				FileHash: job.FileHash,
+				ChunkIndex: 0,
+				JobId: job.JobId,
+			}
+
+			nextChunkReqBytes, err := json.Marshal(fileChunkReq)
+			if err != nil {
+				fmt.Println("Error:", err)
+				return err
+			}
+
+			fmt.Println("Writing marshal bytes")
+			rw.Write(nextChunkReqBytes)
+			rw.Flush()
+
 			Manager.Mutex.Unlock()
 			return nil
 		}
@@ -145,28 +172,6 @@ func StartJob(jobId string) error {
 
 func handleStream(s network.Stream) {
 	rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
-
-	job, err := FindJobByHash(strings.Replace(string(s.Protocol()), "orcanet-fileshare/1.0/", "", -1))
-	if err != nil {
-		fmt.Println("Error:", err)
-		return 
-	}
-
-	fileChunkReq := FileChunkRequest{
-		FileHash: job.FileHash,
-		ChunkIndex: 0,
-		JobId: job.JobId,
-	}
-
-	nextChunkReqBytes, err := json.Marshal(fileChunkReq)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	rw.Write(nextChunkReqBytes)
-	rw.Flush()
-
 	go readData(rw) //TODO set up channel to close stream
 }
 
