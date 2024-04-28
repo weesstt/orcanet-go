@@ -289,11 +289,11 @@ func (client *Client) AddJob(ip string, httpPort string, file_hash string, peerM
 	}	
 
 	respPayload := orcaJobs.AddJobResPayload{}
-	err = json.Unmarshal(responseBody, respPayload)
+	err = json.Unmarshal(responseBody, &respPayload)
 	if err != nil {
 		fmt.Printf("Error unmarshaling add job res payload: %s\n", err)
 	}
-
+	fmt.Printf("Added job with ID %s \n", respPayload.JobId)
 	return respPayload.JobId, nil
 }
 

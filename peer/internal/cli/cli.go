@@ -161,9 +161,11 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 				if err != nil {
 					fmt.Printf("Error getting file %s", err)
 				}
-
+				
 				err = client.StartJobs("localhost", httpPort, []string{jobId})
-
+				if err != nil {
+					fmt.Printf("Error getting file %s\n", err)
+				}
 			} else {
 				fmt.Println("Usage: get [fileHash]")
 			}

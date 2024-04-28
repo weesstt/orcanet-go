@@ -150,6 +150,7 @@ func AddJobHandler(w http.ResponseWriter, r *http.Request) {
 			PeerId:          payload.PeerId,
 		}
 		AddJob(newJob)
+		fmt.Println("Added job with ID %s\n", id)
 		w.WriteHeader(http.StatusOK)
 		writeStatusUpdate(w, "Successfully added job.")
 	} else {
