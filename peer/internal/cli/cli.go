@@ -80,7 +80,7 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 	fmt.Println("DHT Market Multiaddr (if in server mode):")
 	for _, addr := range host.Addrs() {
 		if !strings.Contains(fmt.Sprintf("%s", addr), "127.0.0.1") {
-			hostMultiAddr = fmt.Sprintf("%s/p2p/%s\n", addr, host.ID())
+			hostMultiAddr = fmt.Sprintf("%s/p2p/%s", addr, host.ID())
 		}
 		fmt.Printf("%s/p2p/%s\n", addr, host.ID())
 	}
@@ -158,15 +158,15 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 				// 	fmt.Printf("Error getting file %s", err)
 				// }
 				
-				jobId, err := Client.AddJob("localhost", httpPort, args[0], bestHolder.GetIp())
+				_, err = Client.AddJob("localhost", httpPort, args[0], bestHolder.GetIp())
 				if err != nil {
 					fmt.Printf("Error getting file %s", err)
 				}
 				
-				err = Client.StartJobs("localhost", httpPort, []string{jobId})
-				if err != nil {
-					fmt.Printf("Error getting file %s\n", err)
-				}
+				// err = Client.StartJobs("localhost", httpPort, []string{jobId})
+				// if err != nil {
+				// 	fmt.Printf("Error getting file %s\n", err)
+				// }
 			} else {
 				fmt.Println("Usage: get [fileHash]")
 			}

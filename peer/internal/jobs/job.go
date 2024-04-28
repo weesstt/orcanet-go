@@ -12,7 +12,6 @@ import (
 	"bufio"
 	"log"
 	"fmt"
-	"io"
 	"context"
 	"strings"
 )
@@ -104,6 +103,7 @@ func PauseJob(jobId string) error {
 	return errors.New("Unable to find jobId: " + jobId)
 }
 
+//TODO in any error situtation stop/delete job?
 func StartJob(jobId string) error {
 	Manager.Mutex.Lock()
 	for idx, job := range Manager.Jobs {
@@ -111,28 +111,30 @@ func StartJob(jobId string) error {
 			Manager.Jobs[idx].Status = "active"
 			Manager.Changed = true
 			host := Manager.Host
-
+			
 			peerMA, err := multiaddr.NewMultiaddr(job.PeerId)
 			if err != nil {
+				log.Println(err)
 				Manager.Mutex.Unlock()
 				return err
 			}
 
 			peer, err := peer.AddrInfoFromP2pAddr(peerMA)
 			if err != nil {
+				log.Println(err)
 				Manager.Mutex.Unlock()
 				return err
 			}
 
 			host.Peerstore().AddAddrs(peer.ID, peer.Addrs, peerstore.AddressTTL)
-
-			_, err = host.NewStream(context.Background(), peer.ID, "orcanet-fileshare/1.0")
-			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), handleStream)
+			_, err = host.NewStream(context.Background(), peer.ID, protocol.ID("orcanet-fileshare/1.0/" + job.FileHash))
 			if err != nil {
 				log.Println(err)
+				Manager.Mutex.Unlock()
 				return err
 			}
 
+			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), handleStream)
 			Manager.Mutex.Unlock()
 			return nil
 		}
@@ -144,7 +146,7 @@ func StartJob(jobId string) error {
 func handleStream(s network.Stream) {
 	rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
 
-	job, err := FindJob(strings.Replace(string(s.Protocol()), "orcanet-fileshare/1.0/", "", -1))
+	job, err := FindJobByHash(strings.Replace(string(s.Protocol()), "orcanet-fileshare/1.0/", "", -1))
 	if err != nil {
 		fmt.Println("Error:", err)
 		return 
@@ -165,7 +167,7 @@ func handleStream(s network.Stream) {
 	rw.Write(nextChunkReqBytes)
 	rw.Flush()
 
-	go readData(rw)
+	go readData(rw) //TODO set up channel to close stream
 }
 
 //TODO send transaction 
@@ -193,36 +195,8 @@ func readData(rw *bufio.ReadWriter){
 		fileChunk := FileChunk{}
 		err := json.Unmarshal(data, &fileChunk)
 		if err != nil {
-			fileChunkReq := FileChunkRequest{}
-			err := json.Unmarshal(data, &fileChunkReq)
-			if err != nil {
-				fmt.Println("Error unmarshaling JSON:", err)
-				return 
-			}
-			
-			orcaFileInfo := (*Manager.StoredFileInfoMap)[fileChunkReq.FileHash]
-			chunkHash := orcaFileInfo.GetChunkHashes()[fileChunkReq.ChunkIndex]
-
-			file, err := os.Open("./files/stored/" + chunkHash)
-			if err != nil {
-				fmt.Println("Error:", err)
-				return 
-			}
-			defer file.Close()
-
-			_, err = io.Copy(rw, bufio.NewReader(file))
-			if err != nil {
-				fmt.Println("Error:", err)
-				return
-			}
-
-			if err := rw.Flush(); err != nil {
-				fmt.Println("Error flushing writer:", err)
-				return
-			}
-
-			fmt.Printf("Transmitted chunk %s\n", chunkHash)
-			return
+			fmt.Printf("Error unmarshaling json data %s\n", err)
+			return 
 		}
 	
 		_, err = FindJob(fileChunk.JobId)
@@ -272,4 +246,16 @@ func FindJob(jobId string) (Job, error) {
 	}
 	Manager.Mutex.Unlock()
 	return Job{}, errors.New("unable to find job with specified jobId")
+}
+
+func FindJobByHash(file_hash string) (Job, error) {
+	Manager.Mutex.Lock()
+	for _, job := range Manager.Jobs {
+		if job.FileHash == file_hash {
+			Manager.Mutex.Unlock()
+			return job, nil
+		}
+	}
+	Manager.Mutex.Unlock()
+	return Job{}, errors.New("unable to find job with specified file hash")
 }

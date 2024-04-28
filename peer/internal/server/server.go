@@ -381,33 +381,33 @@ func ConvertKeyToString(n *big.Int, e int) string {
 	return publicKeyString
 }
 func jobRoutine(jobId string, hash string, peerId string) {
-	holders, err := SetupCheckHolders(hash)
-	if err != nil {
-		fmt.Printf("Error finding holders for file: %x", err)
-		return
-	}
-	var bestHolder *fileshare.User
-	var selectedHolder *fileshare.User
-	bestHolder = nil
-	selectedHolder = nil
-	for _, holder := range holders.Holders {
-		if bestHolder == nil {
-			bestHolder = holder
-		} else if holder.GetPrice() < bestHolder.GetPrice() {
-			bestHolder = holder
-		}
-		if string(holder.Id) == peerId {
-			selectedHolder = holder
-		}
-	}
-	if bestHolder == nil && selectedHolder == nil {
-		fmt.Println("Unable to find holder for this hash.")
-		return
-	}
-	if selectedHolder != nil {
-		bestHolder = selectedHolder
-	}
-	fmt.Printf("%s - %d OrcaCoin\n", bestHolder.GetIp(), bestHolder.GetPrice())
+	// holders, err := SetupCheckHolders(hash)
+	// if err != nil {
+	// 	fmt.Printf("Error finding holders for file: %x", err)
+	// 	return
+	// }
+	// var bestHolder *fileshare.User
+	// var selectedHolder *fileshare.User
+	// bestHolder = nil
+	// selectedHolder = nil
+	// for _, holder := range holders.Holders {
+	// 	if bestHolder == nil {
+	// 		bestHolder = holder
+	// 	} else if holder.GetPrice() < bestHolder.GetPrice() {
+	// 		bestHolder = holder
+	// 	}
+	// 	if string(holder.Id) == peerId {
+	// 		selectedHolder = holder
+	// 	}
+	// }
+	// if bestHolder == nil && selectedHolder == nil {
+	// 	fmt.Println("Unable to find holder for this hash.")
+	// 	return
+	// }
+	// if selectedHolder != nil {
+	// 	bestHolder = selectedHolder
+	// }
+	// fmt.Printf("%s - %d OrcaCoin\n", bestHolder.GetIp(), bestHolder.GetPrice())
 
 	// pubKeyInterface, err := x509.ParsePKIXPublicKey(bestHolder.Id)
 	// if err != nil {
@@ -419,10 +419,10 @@ func jobRoutine(jobId string, hash string, peerId string) {
 	// }
 	// key := ConvertKeyToString(rsaPubKey.N, rsaPubKey.E)
 	//err = Client.GetFileOnce(bestHolder.GetIp(), bestHolder.GetPort(), hash, key, fmt.Sprintf("%d", bestHolder.GetPrice()), PassKey, jobId)
-	orcaJobs.StartJob(jobId)
-	if err != nil {
-		fmt.Printf("Error getting file %s", err)
-	}
+	go orcaJobs.StartJob(jobId)
+	// if err != nil {
+	// 	fmt.Printf("Error getting file %s", err)
+	// }
 }
 
 func AddJobHandler(w http.ResponseWriter, r *http.Request) {
@@ -447,8 +447,8 @@ func AddJobHandler(w http.ResponseWriter, r *http.Request) {
 			PeerId:          payload.PeerId,
 		}
 		orcaJobs.AddJob(newJob)
+		fmt.Println("adding job and starting go routine")
 		go jobRoutine(newJob.JobId, payload.FileHash, payload.PeerId)
-		w.WriteHeader(http.StatusOK)
 		response := orcaJobs.AddJobResPayload{JobId: newJob.JobId}
 		jsonData, err := json.Marshal(response)
 		if err != nil {

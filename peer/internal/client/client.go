@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	orcaBlockchain "orca-peer/internal/blockchain"
 	"orca-peer/internal/hash"
+	"orca-peer/internal/fileshare"
 	"strings"
 	orcaHash "orca-peer/internal/hash"
 	orcaJobs "orca-peer/internal/jobs"
@@ -21,6 +23,7 @@ type Client struct {
 	name_map   hash.NameMap
 	PublicKey  *rsa.PublicKey
 	PrivateKey *rsa.PrivateKey
+	StoredFileInfoMap *map[string]fileshare.FileInfo
 }
 
 func NewClient(path string) *Client {
@@ -339,7 +342,7 @@ func (client *Client) sendTransactionFee(coins string, address string, senderWal
 func (client *Client) AddJob(ip string, httpPort string, file_hash string, peerMultiaddr string) (string, error) {
 	payload := orcaJobs.AddJobReqPayload{
 		FileHash: file_hash,
-		PeerId: peerMultiaddr,
+		PeerId: strings.Replace(peerMultiaddr, "\n", "", -1),
 	}
 
 	data, err := json.Marshal(payload)
@@ -348,22 +351,29 @@ func (client *Client) AddJob(ip string, httpPort string, file_hash string, peerM
 		return "", err
 	}
 	
-	resp, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%s/add-job", ip, httpPort), strings.NewReader(string(data)))
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%s/add-job", ip, httpPort), bytes.NewBuffer(data))
 	if err != nil {
 		fmt.Printf("Error: %s\n", err)
 		return "", err
 	}
-	defer resp.Body.Close()
+	req.Header.Set("Content-Type", "application/json")
 
+	httpClient := http.Client{}
+    resp, err := httpClient.Do(req)
+    if err != nil {
+        fmt.Println("Error making request:", err)
+        return "", nil
+    }
+    defer resp.Body.Close()
 
-	responseBody, err := io.ReadAll(resp.Body)
+	bytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error reading response body:", err)
+		fmt.Printf("Error: %s\n", err)
 		return "", err
-	}	
+	}
 
 	respPayload := orcaJobs.AddJobResPayload{}
-	err = json.Unmarshal(responseBody, &respPayload)
+	err = json.Unmarshal(bytes, &respPayload)
 	if err != nil {
 		fmt.Printf("Error unmarshaling add job res payload: %s\n", err)
 	}

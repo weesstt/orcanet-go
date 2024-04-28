@@ -19,14 +19,18 @@ import (
 	"net/http"
 	"orca-peer/internal/fileshare"
 	orcaHash "orca-peer/internal/hash"
+	orcaJobs "orca-peer/internal/jobs"
 	"os"
 	"strings"
 	"sync"
+	"encoding/json"
 	"time"
 	"github.com/go-ping/ping"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	record "github.com/libp2p/go-libp2p-record"
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
@@ -37,6 +41,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
+	
 )
 
 type FileShareServerNode struct {
@@ -46,6 +51,7 @@ type FileShareServerNode struct {
 	PubKey            libp2pcrypto.PubKey
 	V                 record.Validator
 	StoredFileInfoMap map[string]fileshare.FileInfo //This is the list of files we are storing
+	Host host.Host
 }
 
 var (
@@ -106,6 +112,7 @@ func CreateMarketServer(rpcPort string, serverReady chan bool, fileShareServer *
 	fileShareServer.PrivKey = privKey
 	fileShareServer.PubKey = pubKey
 	fileShareServer.V = validator
+	fileShareServer.Host = host
 	fileshare.RegisterFileShareServer(s, fileShareServer)
 	go ListAllDHTPeers(ctx, host)
 	fmt.Printf("Market RPC Server listening at %v\n\n", lis.Addr())
@@ -362,6 +369,8 @@ func SetupRegisterFile(filePath string, fileName string, amountPerMB int64, host
 	if err != nil {
 		return err
 	}
+
+	serverStruct.Host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + fileKey), HandleStoredFileStream)
 	return nil
 }
 
@@ -529,4 +538,63 @@ func ReadBootstrapPeers() []multiaddr.Multiaddr {
 	}
 
 	return peers
+}
+
+func HandleStoredFileStream(s network.Stream) {
+	rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
+	go readData(rw)
+}
+
+func readData(rw *bufio.ReadWriter){
+	for {
+		data := make([]byte, 0)
+		for {
+			buffer := make([]byte, 1024)
+			bytesRead, err := rw.Read(buffer)
+			if err != nil {
+				fmt.Println("err")
+				
+			}
+			if bytesRead == 0 {
+				break
+			}
+	
+			data = append(data, buffer...)
+		}
+
+		if len(data) == 0 {
+			continue
+		}
+	
+		fileChunkReq := orcaJobs.FileChunkRequest{}
+		err := json.Unmarshal(data, &fileChunkReq)
+		if err != nil {
+			fmt.Println("Error unmarshaling JSON:", err)
+			return 
+		}
+		
+		orcaFileInfo := serverStruct.StoredFileInfoMap[fileChunkReq.FileHash]
+		chunkHash := orcaFileInfo.GetChunkHashes()[fileChunkReq.ChunkIndex]
+
+		file, err := os.Open("./files/stored/" + chunkHash)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return 
+		}
+		defer file.Close()
+
+		_, err = io.Copy(rw, bufio.NewReader(file))
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+
+		if err := rw.Flush(); err != nil {
+			fmt.Println("Error flushing writer:", err)
+			return
+		}
+
+		fmt.Printf("Transmitted chunk %s\n", chunkHash)
+		return
+	}	 
 }
