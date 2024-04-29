@@ -135,7 +135,7 @@ func StartJob(jobId string) error {
 				return err
 			}
 
-			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), HandleStream)
+			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), HandleLibp2pStream)
 			s, err := host.NewStream(context.Background(), peer.ID, protocol.ID("orcanet-fileshare/1.0/" + job.FileHash))
 			if err != nil {
 				log.Println(err)
@@ -184,6 +184,94 @@ func StartJob(jobId string) error {
 				fmt.Println(err)
 				return nil
 			}
+
+			for {
+				buf := bufio.NewReader(s)
+				lengthBytes := make([]byte, 0)
+				for i := 0; i < 4; i++ {
+					b, err := buf.ReadByte()
+					if err != nil {
+						fmt.Println(err)
+						Manager.Mutex.Unlock()
+						return err
+					}	
+					lengthBytes = append(lengthBytes, b)
+				}
+		
+				length := binary.LittleEndian.Uint32(lengthBytes)
+				payload := make([]byte, length)
+				bytesRead, err := io.ReadFull(buf, payload)
+				fmt.Printf("bytes read %s\n", bytesRead)
+				if err != nil {
+					fmt.Println(err)
+					Manager.Mutex.Unlock()
+					return err
+				}
+				
+				fmt.Println("Preparing file chunk to unmarshal")
+				fileChunk := FileChunk{}
+				err = json.Unmarshal(payload, &fileChunk)
+				if err != nil {
+					fmt.Println("Error unmarshaling JSON:", err)
+					Manager.Mutex.Unlock()
+					return err
+				}
+		
+				_, err = FindJob(fileChunk.JobId)
+				if err != nil {
+					log.Fatal(err)
+					Manager.Mutex.Unlock()
+					return err
+				}
+				hash := fileChunk.FileHash
+			
+				file, err := os.OpenFile("./files/requested/" + hash, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+				defer file.Close()
+			
+				_, err = file.Write(fileChunk.Data)
+				if err != nil {
+					log.Fatal(err)
+					Manager.Mutex.Unlock()
+					return err
+				}
+		
+				fmt.Printf("Chunk %d for %s received and written\n", hash, fileChunk.ChunkIndex)
+		
+				if fileChunk.ChunkIndex == fileChunk.MaxChunk {
+					Manager.Mutex.Unlock()
+					return nil
+				}
+			
+				fileChunkReq := FileChunkRequest{
+					FileHash: hash,
+					ChunkIndex: fileChunk.ChunkIndex + 1,
+					JobId: fileChunk.JobId,
+				}
+			
+				nextChunkReqBytes, err := json.Marshal(fileChunkReq)
+				if err != nil {
+					fmt.Println("Error:", err)
+					Manager.Mutex.Unlock()
+					return err
+				}
+		
+				reqLengthHeader := make([]byte, 4)
+				binary.LittleEndian.PutUint32(reqLengthHeader, uint32(len(nextChunkReqBytes)))
+				_, err = s.Write(reqLengthHeader)
+				if err != nil {
+					fmt.Println(err)
+					Manager.Mutex.Unlock()
+					return err
+				}
+			
+				_, err = s.Write(nextChunkReqBytes)
+				if err != nil {
+					fmt.Println(err)
+					Manager.Mutex.Unlock()
+					return err
+				}
+			}
+
 			Manager.Mutex.Unlock()
 			return nil
 		}
@@ -193,86 +281,10 @@ func StartJob(jobId string) error {
 }
 
 //TODO send transaction
-func HandleStream(s network.Stream) {
+func HandleLibp2pStream(s network.Stream) {
 	fmt.Println("debug we are handling stream")
 	defer s.Close()
-	for {
-		buf := bufio.NewReader(s)
-		lengthBytes := make([]byte, 0)
-		for i := 0; i < 4; i++ {
-			b, err := buf.ReadByte()
-			if err != nil {
-				fmt.Println(err)
-				return
-			}	
-			lengthBytes = append(lengthBytes, b)
-		}
-
-		length := binary.LittleEndian.Uint32(lengthBytes)
-		payload := make([]byte, length)
-		bytesRead, err := io.ReadFull(buf, payload)
-		fmt.Printf("bytes read %s\n", bytesRead)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		
-		fmt.Println("Preparing file chunk to unmarshal")
-		fileChunk := FileChunk{}
-		err = json.Unmarshal(payload, &fileChunk)
-		if err != nil {
-			fmt.Println("Error unmarshaling JSON:", err)
-			return 
-		}
-
-		_, err = FindJob(fileChunk.JobId)
-		if err != nil {
-			log.Fatal(err)
-			return
-		}
-		hash := fileChunk.FileHash
 	
-		file, err := os.OpenFile("./files/requested/" + hash, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-		defer file.Close()
-	
-		_, err = file.Write(fileChunk.Data)
-		if err != nil {
-			log.Fatal(err)
-			return
-		}
-
-		fmt.Printf("Chunk %d for %s received and written\n", hash, fileChunk.ChunkIndex)
-
-		if fileChunk.ChunkIndex == fileChunk.MaxChunk {
-			return
-		}
-	
-		fileChunkReq := FileChunkRequest{
-			FileHash: hash,
-			ChunkIndex: fileChunk.ChunkIndex + 1,
-			JobId: fileChunk.JobId,
-		}
-	
-		nextChunkReqBytes, err := json.Marshal(fileChunkReq)
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
-		}
-
-		reqLengthHeader := make([]byte, 4)
-		binary.LittleEndian.PutUint32(reqLengthHeader, uint32(len(nextChunkReqBytes)))
-		_, err = s.Write(reqLengthHeader)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	
-		_, err = s.Write(nextChunkReqBytes)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	}
 }
 
 
