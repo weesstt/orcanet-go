@@ -618,5 +618,11 @@ func HandleStoredFileStream(s network.Stream) {
 			fmt.Println(err)
 			return
 		}
+
+		_, err = s.Write(payloadBytes)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 	}
 }
