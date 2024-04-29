@@ -602,10 +602,10 @@ func readData(rw *bufio.ReadWriter){
 			fmt.Printf("Error marshaling json %s\n", err)
 			return
 		}
-
 		payloadBytes = append(payloadBytes, 0xff)
 
 		fmt.Println("Writing to output stream")
+		rw.Flush()
 		_, err = rw.Write(payloadBytes)
 		if err != nil {
 			fmt.Printf("Error writing payload resp %s\n", err)

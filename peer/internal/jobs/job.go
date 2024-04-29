@@ -141,6 +141,7 @@ func StartJob(jobId string) error {
 			job, err := FindJob(jobId)
 			Manager.Mutex.Lock()
 			if err != nil {
+				Manager.Mutex.Unlock()
 				fmt.Println("Error:", err)
 				return err
 			}
@@ -155,6 +156,7 @@ func StartJob(jobId string) error {
 
 			nextChunkReqBytes, err := json.Marshal(fileChunkReq)
 			if err != nil {
+				Manager.Mutex.Unlock()
 				fmt.Println("Error:", err)
 				return err
 			}
@@ -163,8 +165,12 @@ func StartJob(jobId string) error {
 
 			fmt.Println("Writing marshal bytes")
 			rw.Write(nextChunkReqBytes)
-			rw.Flush()
-
+			err = rw.Flush()
+			if err != nil {
+				Manager.Mutex.Unlock()
+				fmt.Println(err)
+				return nil
+			}
 			Manager.Mutex.Unlock()
 			return nil
 		}
@@ -174,6 +180,7 @@ func StartJob(jobId string) error {
 }
 
 func handleStream(s network.Stream) {
+	fmt.Println("debug we are handling stream")
 	rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
 	go readData(rw) //TODO set up channel to close stream
 }
@@ -181,6 +188,7 @@ func handleStream(s network.Stream) {
 //TODO send transaction 
 func readData(rw *bufio.ReadWriter){
 	for {
+		fmt.Println("going to block until we can read")
 		data, err := rw.ReadSlice(0xff)
 		fmt.Printf("Read %d bytes\n", len(data))
 		if err != nil {
