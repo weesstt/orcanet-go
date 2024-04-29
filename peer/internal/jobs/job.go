@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"context"
+	"encoding/binary"
 )
 
 func AddJob(job Job) {
@@ -136,7 +137,6 @@ func StartJob(jobId string) error {
 				return err
 			}
 
-			rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
 			Manager.Mutex.Unlock()
 			job, err := FindJob(jobId)
 			Manager.Mutex.Lock()
@@ -161,11 +161,18 @@ func StartJob(jobId string) error {
 				return err
 			}
 
-			nextChunkReqBytes = append(nextChunkReqBytes, 0xff)
-
 			fmt.Println("Writing marshal bytes")
-			rw.Write(nextChunkReqBytes)
-			err = rw.Flush()
+
+			lengthBytes := make([]byte, 4)
+    		binary.LittleEndian.PutUint32(lengthBytes, uint32(len(nextChunkReqBytes)))
+			_, err = s.Write(lengthBytes)
+			if err != nil {
+				Manager.Mutex.Unlock()
+				fmt.Println(err)
+				return nil
+			}
+			
+			_, err = s.Write(nextChunkReqBytes)
 			if err != nil {
 				Manager.Mutex.Unlock()
 				fmt.Println(err)
@@ -179,35 +186,43 @@ func StartJob(jobId string) error {
 	return errors.New("Unable to find jobId: " + jobId)
 }
 
+//TODO send transaction
 func handleStream(s network.Stream) {
 	fmt.Println("debug we are handling stream")
-	rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
-	go readData(rw) //TODO set up channel to close stream
-}
-
-//TODO send transaction 
-func readData(rw *bufio.ReadWriter){
+	defer s.Close()
 	for {
-		fmt.Println("going to block until we can read")
-		data, err := rw.ReadSlice(0xff)
-		fmt.Printf("Read %d bytes\n", len(data))
-		if err != nil {
-			if err != io.EOF {
-				fmt.Printf("err %s\n", err)
-				break
-			}
+		buf := bufio.NewReader(s)
+		lengthBytes := make([]byte, 0)
+		for i := 0; i < 4; i++ {
+			b, err := buf.ReadByte()
+			if err != nil {
+				fmt.Println(err)
+				return
+			}	
+			lengthBytes = append(lengthBytes, b)
 		}
-	
-		fileChunk := FileChunk{}
-		err = json.Unmarshal(data[:len(data) - 1], &fileChunk)
+
+		length := binary.LittleEndian.Uint32(lengthBytes)
+		payload := make([]byte, length)
+		bytesRead, err := io.ReadFull(buf, payload)
+		fmt.Printf("bytes read %s\n", bytesRead)
 		if err != nil {
-			fmt.Printf("Error unmarshaling json data %s\n", err)
+			fmt.Println(err)
+			return
+		}
+		
+		fmt.Println("Preparing file chunk to unmarshal")
+		fileChunk := FileChunk{}
+		err = json.Unmarshal(payload, &fileChunk)
+		if err != nil {
+			fmt.Println("Error unmarshaling JSON:", err)
 			return 
 		}
-	
+
 		_, err = FindJob(fileChunk.JobId)
 		if err != nil {
 			log.Fatal(err)
+			return
 		}
 		hash := fileChunk.FileHash
 	
@@ -217,12 +232,13 @@ func readData(rw *bufio.ReadWriter){
 		_, err = file.Write(fileChunk.Data)
 		if err != nil {
 			log.Fatal(err)
+			return
 		}
 
 		fmt.Printf("Chunk %d for %s received and written\n", hash, fileChunk.ChunkIndex)
 
 		if fileChunk.ChunkIndex == fileChunk.MaxChunk {
-			break
+			return
 		}
 	
 		fileChunkReq := FileChunkRequest{
@@ -236,12 +252,23 @@ func readData(rw *bufio.ReadWriter){
 			fmt.Println("Error:", err)
 			return
 		}
-		nextChunkReqBytes = append(nextChunkReqBytes, 0xff)
+
+		reqLengthHeader := make([]byte, 4)
+		binary.LittleEndian.PutUint32(reqLengthHeader, uint32(len(nextChunkReqBytes)))
+		_, err = s.Write(reqLengthHeader)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 	
-		rw.Write(nextChunkReqBytes)
-		rw.Flush()
-	}	 
+		_, err = s.Write(nextChunkReqBytes)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
 }
+
 
 func FindJob(jobId string) (Job, error) {
 	Manager.Mutex.Lock()

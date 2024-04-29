@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"encoding/json"
+	"encoding/binary"
 	"time"
 	"github.com/go-ping/ping"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -542,24 +543,31 @@ func ReadBootstrapPeers() []multiaddr.Multiaddr {
 }
 
 func HandleStoredFileStream(s network.Stream) {
-	rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
-	go readData(rw)
-}
-
-func readData(rw *bufio.ReadWriter){
+	defer s.Close()
 	for {
-		data, err := rw.ReadSlice(0xff)
-		fmt.Printf("Read %d bytes\n", len(data))
-		if err != nil {
-			if err != io.EOF {
-				fmt.Printf("err %s\n", err)
-				break
-			}
+		buf := bufio.NewReader(s)
+		lengthBytes := make([]byte, 0)
+		for i := 0; i < 4; i++ {
+			b, err := buf.ReadByte()
+			if err != nil {
+				fmt.Println(err)
+				return
+			}	
+			lengthBytes = append(lengthBytes, b)
 		}
-	
+
+		length := binary.LittleEndian.Uint32(lengthBytes)
+		payload := make([]byte, length)
+		bytesRead, err := io.ReadFull(buf, payload)
+		fmt.Printf("bytes read %s\n", bytesRead)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		
 		fmt.Println("Preparing file chunk req to unmarshal")
 		fileChunkReq := orcaJobs.FileChunkRequest{}
-		err = json.Unmarshal(data[:len(data) - 1], &fileChunkReq)
+		err = json.Unmarshal(payload, &fileChunkReq)
 		if err != nil {
 			fmt.Println("Error unmarshaling JSON:", err)
 			return 
@@ -583,7 +591,7 @@ func readData(rw *bufio.ReadWriter){
 			MaxChunk: len(orcaFileInfo.GetChunkHashes()),
 			JobId: fileChunkReq.JobId,
 		}
-
+	
 		var chunkData bytes.Buffer
 
 		fmt.Println("Copying bytes to buffer to add to file chunk")
@@ -602,27 +610,13 @@ func readData(rw *bufio.ReadWriter){
 			fmt.Printf("Error marshaling json %s\n", err)
 			return
 		}
-		payloadBytes = append(payloadBytes, 0xff)
 
-		fmt.Println("Writing to output stream")
-		rw.Flush()
-		_, err = rw.Write(payloadBytes)
+		respLengthHeader := make([]byte, 4)
+		binary.LittleEndian.PutUint32(respLengthHeader, uint32(len(payloadBytes)))
+		_, err = s.Write(respLengthHeader)
 		if err != nil {
-			fmt.Printf("Error writing payload resp %s\n", err)
-		}
-		
-		fmt.Println("Flushing stream")
-		err = rw.Flush()
-		if err != nil {
-			fmt.Println("Error flushing writer:", err)
+			fmt.Println(err)
 			return
 		}
-
-		fmt.Printf("Transmitted chunk %s\n", chunkHash)
-		
-		if fileChunkReq.ChunkIndex == len(orcaFileInfo.GetChunkHashes()) - 1 {
-			//TODO close stream with channel
-			return
-		}
-	}	 
+	}
 }
