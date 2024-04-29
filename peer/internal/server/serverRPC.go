@@ -560,6 +560,7 @@ func HandleStoredFileStream(s network.Stream) {
 		payload := make([]byte, length)
 		bytesRead, err := io.ReadFull(buf, payload)
 		fmt.Printf("bytes read %s\n", bytesRead)
+		s.Write([]byte{255})
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -613,12 +614,14 @@ func HandleStoredFileStream(s network.Stream) {
 
 		respLengthHeader := make([]byte, 4)
 		binary.LittleEndian.PutUint32(respLengthHeader, uint32(len(payloadBytes)))
+		fmt.Println("writing response header length")
 		_, err = s.Write(respLengthHeader)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 
+		fmt.Println("writing payload bytes")
 		_, err = s.Write(payloadBytes)
 		if err != nil {
 			fmt.Println(err)

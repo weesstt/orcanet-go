@@ -129,7 +129,9 @@ func StartJob(jobId string) error {
 
 			host.Peerstore().AddAddrs(peer.ID, peer.Addrs, peerstore.AddressTTL)
 
-			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), handleStream)
+			host.Connect(context.Background(), peer)
+
+			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), HandleStream)
 			s, err := host.NewStream(context.Background(), peer.ID, protocol.ID("orcanet-fileshare/1.0/" + job.FileHash))
 			if err != nil {
 				log.Println(err)
@@ -187,7 +189,7 @@ func StartJob(jobId string) error {
 }
 
 //TODO send transaction
-func handleStream(s network.Stream) {
+func HandleStream(s network.Stream) {
 	fmt.Println("debug we are handling stream")
 	defer s.Close()
 	for {
