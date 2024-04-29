@@ -611,7 +611,9 @@ func readData(rw *bufio.ReadWriter){
 			fmt.Printf("Error writing payload resp %s\n", err)
 		}
 		
-		if err := rw.Flush(); err != nil {
+		fmt.Println("Flushing stream")
+		err = rw.Flush()
+		if err != nil {
 			fmt.Println("Error flushing writer:", err)
 			return
 		}
