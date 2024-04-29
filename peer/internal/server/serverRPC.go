@@ -551,7 +551,6 @@ func HandleStoredFileStream(s network.Stream) {
 			b, err := buf.ReadByte()
 			if err != nil {
 				fmt.Println(err)
-				s.Close()
 				return
 			}	
 			lengthBytes = append(lengthBytes, b)
@@ -560,14 +559,11 @@ func HandleStoredFileStream(s network.Stream) {
 		length := binary.LittleEndian.Uint32(lengthBytes)
 		payload := make([]byte, length)
 		bytesRead, err := io.ReadFull(buf, payload)
-		fmt.Printf("bytes read %s\n", bytesRead)
-		
-		fmt.Println("Preparing file chunk req to unmarshal")
+
 		fileChunkReq := orcaJobs.FileChunkRequest{}
 		err = json.Unmarshal(payload, &fileChunkReq)
 		if err != nil {
 			fmt.Println("Error unmarshaling JSON:", err)
-			s.Close()
 			return 
 		}
 		
@@ -578,7 +574,6 @@ func HandleStoredFileStream(s network.Stream) {
 		file, err := os.Open("./files/stored/" + chunkHash)
 		if err != nil {
 			fmt.Println("Error:", err)
-			s.Close()
 			return 
 		}
 		defer file.Close()
@@ -593,40 +588,32 @@ func HandleStoredFileStream(s network.Stream) {
 	
 		var chunkData bytes.Buffer
 
-		fmt.Println("Copying bytes to buffer to add to file chunk")
 		_, err = io.Copy(&chunkData, file)
 		if err != nil {
 			fmt.Println("Error copying:", err)
-			s.Close()
 			return
 		}
 
 		chunkDataBytes := chunkData.Bytes()
 		fileChunk.Data = chunkDataBytes
 		
-		fmt.Println("Marshaling payload into bytes")
 		payloadBytes, err := json.Marshal(fileChunk)
 		if err != nil {
 			fmt.Printf("Error marshaling json %s\n", err)
-			s.Close()
 			return
 		}
 
 		respLengthHeader := make([]byte, 4)
 		binary.LittleEndian.PutUint32(respLengthHeader, uint32(len(payloadBytes)))
-		fmt.Println("writing response header length")
 		_, err = s.Write(respLengthHeader)
 		if err != nil {
 			fmt.Println(err)
-			s.Close()
 			return
 		}
 
-		fmt.Println("writing payload bytes")
 		_, err = s.Write(payloadBytes)
 		if err != nil {
 			fmt.Println(err)
-			s.Close()
 			return
 		}
 	}

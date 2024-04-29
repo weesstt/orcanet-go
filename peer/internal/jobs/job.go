@@ -131,6 +131,7 @@ func StartJob(jobId string) error {
 			err = host.Connect(context.Background(), *peer)
 			if err != nil {
 				log.Println(err)
+				Manager.Mutex.Unlock()
 				return err
 			}
 
@@ -140,17 +141,16 @@ func StartJob(jobId string) error {
 				Manager.Mutex.Unlock()
 				return err
 			}
+			defer s.Close()
 
 			Manager.Mutex.Unlock()
 			job, err := FindJob(jobId)
 			Manager.Mutex.Lock()
 			if err != nil {
-				Manager.Mutex.Unlock()
 				fmt.Println("Error:", err)
+				Manager.Mutex.Unlock()
 				return err
 			}
-
-			fmt.Println("found job and read writer")
 
 			fileChunkReq := FileChunkRequest{
 				FileHash: job.FileHash,
@@ -160,26 +160,24 @@ func StartJob(jobId string) error {
 
 			nextChunkReqBytes, err := json.Marshal(fileChunkReq)
 			if err != nil {
-				Manager.Mutex.Unlock()
 				fmt.Println("Error:", err)
+				Manager.Mutex.Unlock()
 				return err
 			}
-
-			fmt.Println("Writing marshal bytes")
 
 			lengthBytes := make([]byte, 4)
     		binary.LittleEndian.PutUint32(lengthBytes, uint32(len(nextChunkReqBytes)))
 			_, err = s.Write(lengthBytes)
 			if err != nil {
-				Manager.Mutex.Unlock()
 				fmt.Println(err)
+				Manager.Mutex.Unlock()
 				return nil
 			}
 			
 			_, err = s.Write(nextChunkReqBytes)
 			if err != nil {
-				Manager.Mutex.Unlock()
 				fmt.Println(err)
+				Manager.Mutex.Unlock()
 				return nil
 			}
 
@@ -199,14 +197,12 @@ func StartJob(jobId string) error {
 				length := binary.LittleEndian.Uint32(lengthBytes)
 				payload := make([]byte, length)
 				bytesRead, err := io.ReadFull(buf, payload)
-				fmt.Printf("bytes read %s\n", bytesRead)
 				if err != nil {
 					fmt.Println(err)
 					Manager.Mutex.Unlock()
 					return err
 				}
 				
-				fmt.Println("Preparing file chunk to unmarshal")
 				fileChunk := FileChunk{}
 				err = json.Unmarshal(payload, &fileChunk)
 				if err != nil {
@@ -237,20 +233,18 @@ func StartJob(jobId string) error {
 		
 				fmt.Printf("Chunk %d for %s received and written\n", hash, fileChunk.ChunkIndex)
 		
-				if fileChunk.ChunkIndex == fileChunk.MaxChunk {
-					s.Close()
+				if fileChunk.ChunkIndex == fileChunk.MaxChunk - 1 {
+					fmt.Println("All chunks received and written")
 					Manager.Mutex.Unlock()
 					return nil
 				}
 			
-				fmt.Printf("Creating next chunk request")
 				fileChunkReq := FileChunkRequest{
 					FileHash: hash,
 					ChunkIndex: fileChunk.ChunkIndex + 1,
 					JobId: fileChunk.JobId,
 				}
 			
-				fmt.Printf("Marshal next chunk request")
 				nextChunkReqBytes, err := json.Marshal(fileChunkReq)
 				if err != nil {
 					fmt.Println("Error:", err)
@@ -258,10 +252,8 @@ func StartJob(jobId string) error {
 					return err
 				}
 		
-				fmt.Printf("Prepare length header")
 				reqLengthHeader := make([]byte, 4)
 				binary.LittleEndian.PutUint32(reqLengthHeader, uint32(len(nextChunkReqBytes)))
-				fmt.Printf("Write length header")
 				_, err = s.Write(reqLengthHeader)
 				if err != nil {
 					fmt.Println(err)
@@ -269,7 +261,6 @@ func StartJob(jobId string) error {
 					return err
 				}
 
-				fmt.Printf("Write next chunk req bytes")
 				_, err = s.Write(nextChunkReqBytes)
 				if err != nil {
 					fmt.Println(err)
