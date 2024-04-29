@@ -570,7 +570,6 @@ func HandleStoredFileStream(s network.Stream) {
 		orcaFileInfo := serverStruct.StoredFileInfoMap[fileChunkReq.FileHash]
 		chunkHash := orcaFileInfo.GetChunkHashes()[fileChunkReq.ChunkIndex]
 
-		fmt.Println("Opening file to get data")
 		file, err := os.Open("./files/stored/" + chunkHash)
 		if err != nil {
 			fmt.Println("Error:", err)
@@ -578,7 +577,6 @@ func HandleStoredFileStream(s network.Stream) {
 		}
 		defer file.Close()
 
-		fmt.Println("Creating file chunk response")
 		fileChunk := orcaJobs.FileChunk{
 			FileHash: fileChunkReq.FileHash,
 			ChunkIndex: fileChunkReq.ChunkIndex,

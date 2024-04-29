@@ -447,7 +447,7 @@ func AddJobHandler(w http.ResponseWriter, r *http.Request) {
 			PeerId:          payload.PeerId,
 		}
 		orcaJobs.AddJob(newJob)
-		fmt.Println("adding job and starting go routine")
+
 		go jobRoutine(newJob.JobId, payload.FileHash, payload.PeerId)
 		response := orcaJobs.AddJobResPayload{JobId: newJob.JobId}
 		jsonData, err := json.Marshal(response)
