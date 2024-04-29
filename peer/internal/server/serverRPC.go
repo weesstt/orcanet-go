@@ -586,6 +586,7 @@ func readData(rw *bufio.ReadWriter){
 
 		var chunkData bytes.Buffer
 
+		fmt.Println("Copying bytes to buffer to add to file chunk")
 		_, err = io.Copy(&chunkData, file)
 		if err != nil {
 			fmt.Println("Error copying:", err)
@@ -595,6 +596,7 @@ func readData(rw *bufio.ReadWriter){
 		chunkDataBytes := chunkData.Bytes()
 		fileChunk.Data = chunkDataBytes
 		
+		fmt.Println("Marshaling payload into bytes")
 		payloadBytes, err := json.Marshal(fileChunk)
 		if err != nil {
 			fmt.Printf("Error marshaling json %s\n", err)
@@ -603,7 +605,11 @@ func readData(rw *bufio.ReadWriter){
 
 		payloadBytes = append(payloadBytes, 0xff)
 
-		rw.Write(payloadBytes)
+		fmt.Println("Writing to output stream")
+		err = rw.Write(payloadBytes)
+		if err != nil {
+			fmt.Printf("Error writing payload resp %s\n", err)
+		}
 		
 		if err := rw.Flush(); err != nil {
 			fmt.Println("Error flushing writer:", err)
