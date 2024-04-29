@@ -129,7 +129,7 @@ func StartJob(jobId string) error {
 
 			host.Peerstore().AddAddrs(peer.ID, peer.Addrs, peerstore.AddressTTL)
 
-			host.Connect(context.Background(), peer)
+			host.Connect(context.Background(), *peer)
 
 			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), HandleStream)
 			s, err := host.NewStream(context.Background(), peer.ID, protocol.ID("orcanet-fileshare/1.0/" + job.FileHash))
