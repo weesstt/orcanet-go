@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"log"
 	"fmt"
+	"io"
 	"context"
 )
 
@@ -158,6 +159,8 @@ func StartJob(jobId string) error {
 				return err
 			}
 
+			nextChunkReqBytes = append(nextChunkReqBytes, 0xff)
+
 			fmt.Println("Writing marshal bytes")
 			rw.Write(nextChunkReqBytes)
 			rw.Flush()
@@ -178,27 +181,17 @@ func handleStream(s network.Stream) {
 //TODO send transaction 
 func readData(rw *bufio.ReadWriter){
 	for {
-		data := make([]byte, 0)
-		for {
-			buffer := make([]byte, 1024)
-			bytesRead, err := rw.Read(buffer)
-			if err != nil {
-				fmt.Println("err")
-				
-			}
-			if bytesRead == 0 {
+		data, err := rw.ReadSlice(0xff)
+		fmt.Printf("Read %d bytes\n", len(data))
+		if err != nil {
+			if err != io.EOF {
+				fmt.Printf("err %s\n", err)
 				break
 			}
-	
-			data = append(data, buffer...)
-		}
-
-		if len(data) == 0 {
-			continue
 		}
 	
 		fileChunk := FileChunk{}
-		err := json.Unmarshal(data, &fileChunk)
+		err = json.Unmarshal(data[:len(data) - 1], &fileChunk)
 		if err != nil {
 			fmt.Printf("Error unmarshaling json data %s\n", err)
 			return 
@@ -235,6 +228,7 @@ func readData(rw *bufio.ReadWriter){
 			fmt.Println("Error:", err)
 			return
 		}
+		nextChunkReqBytes = append(nextChunkReqBytes, 0xff)
 	
 		rw.Write(nextChunkReqBytes)
 		rw.Flush()

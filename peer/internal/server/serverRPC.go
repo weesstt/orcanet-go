@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -547,28 +548,17 @@ func HandleStoredFileStream(s network.Stream) {
 
 func readData(rw *bufio.ReadWriter){
 	for {
-		data := make([]byte, 0)
-		for {
-			buffer := make([]byte, 1024)
-			bytesRead, err := rw.Read(buffer)
-			fmt.Printf("Read %d bytes\n", bytesRead)
-			if err != nil {
-				fmt.Println("err")
+		data, err := rw.ReadSlice(0xff)
+		fmt.Printf("Read %d bytes\n", len(data))
+		if err != nil {
+			if err != io.EOF {
+				fmt.Printf("err %s\n", err)
 				break
 			}
-			if bytesRead == 0 {
-				break
-			}
-	
-			data = append(data, buffer...)
-		}
-
-		if len(data) == 0 {
-			continue
 		}
 	
 		fileChunkReq := orcaJobs.FileChunkRequest{}
-		err := json.Unmarshal(data, &fileChunkReq)
+		err = json.Unmarshal(data[:len(data) - 1], &fileChunkReq)
 		if err != nil {
 			fmt.Println("Error unmarshaling JSON:", err)
 			return 
@@ -584,18 +574,44 @@ func readData(rw *bufio.ReadWriter){
 		}
 		defer file.Close()
 
-		_, err = io.Copy(rw, bufio.NewReader(file))
+		fileChunk := orcaJobs.FileChunk{
+			FileHash: fileChunkReq.FileHash,
+			ChunkIndex: fileChunkReq.ChunkIndex,
+			MaxChunk: len(orcaFileInfo.GetChunkHashes()),
+			JobId: fileChunkReq.JobId,
+		}
+
+		var chunkData bytes.Buffer
+
+		_, err = io.Copy(&chunkData, file)
 		if err != nil {
-			fmt.Println("Error:", err)
+			fmt.Println("Error copying:", err)
 			return
 		}
 
+		chunkDataBytes := chunkData.Bytes()
+		fileChunk.Data = chunkDataBytes
+		
+		payloadBytes, err := json.Marshal(fileChunk)
+		if err != nil {
+			fmt.Printf("Error marshaling json %s\n", err)
+			return
+		}
+
+		payloadBytes = append(payloadBytes, 0xff)
+
+		rw.Write(payloadBytes)
+		
 		if err := rw.Flush(); err != nil {
 			fmt.Println("Error flushing writer:", err)
 			return
 		}
 
 		fmt.Printf("Transmitted chunk %s\n", chunkHash)
-		return
+		
+		if fileChunkReq.ChunkIndex == len(orcaFileInfo.GetChunkHashes()) - 1 {
+			//TODO close stream with channel
+			return
+		}
 	}	 
 }
