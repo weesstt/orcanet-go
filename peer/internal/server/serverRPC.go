@@ -557,6 +557,7 @@ func readData(rw *bufio.ReadWriter){
 			}
 		}
 	
+		fmt.Println("Preparing file chunk req to unmarshal")
 		fileChunkReq := orcaJobs.FileChunkRequest{}
 		err = json.Unmarshal(data[:len(data) - 1], &fileChunkReq)
 		if err != nil {
@@ -567,6 +568,7 @@ func readData(rw *bufio.ReadWriter){
 		orcaFileInfo := serverStruct.StoredFileInfoMap[fileChunkReq.FileHash]
 		chunkHash := orcaFileInfo.GetChunkHashes()[fileChunkReq.ChunkIndex]
 
+		fmt.Println("Opening file to get data")
 		file, err := os.Open("./files/stored/" + chunkHash)
 		if err != nil {
 			fmt.Println("Error:", err)
@@ -574,6 +576,7 @@ func readData(rw *bufio.ReadWriter){
 		}
 		defer file.Close()
 
+		fmt.Println("Creating file chunk response")
 		fileChunk := orcaJobs.FileChunk{
 			FileHash: fileChunkReq.FileHash,
 			ChunkIndex: fileChunkReq.ChunkIndex,
