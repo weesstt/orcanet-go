@@ -196,7 +196,7 @@ func StartJob(jobId string) error {
 		
 				length := binary.LittleEndian.Uint32(lengthBytes)
 				payload := make([]byte, length)
-				bytesRead, err := io.ReadFull(buf, payload)
+				_, err := io.ReadFull(buf, payload)
 				if err != nil {
 					fmt.Println(err)
 					Manager.Mutex.Unlock()

@@ -558,7 +558,7 @@ func HandleStoredFileStream(s network.Stream) {
 
 		length := binary.LittleEndian.Uint32(lengthBytes)
 		payload := make([]byte, length)
-		bytesRead, err := io.ReadFull(buf, payload)
+		_, err := io.ReadFull(buf, payload)
 
 		fileChunkReq := orcaJobs.FileChunkRequest{}
 		err = json.Unmarshal(payload, &fileChunkReq)
