@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -135,7 +134,6 @@ func StartJob(jobId string) error {
 				return err
 			}
 
-			host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + job.FileHash), HandleLibp2pStream)
 			s, err := host.NewStream(context.Background(), peer.ID, protocol.ID("orcanet-fileshare/1.0/" + job.FileHash))
 			if err != nil {
 				log.Println(err)
@@ -217,7 +215,9 @@ func StartJob(jobId string) error {
 					return err
 				}
 		
+				Manager.Mutex.Unlock()
 				_, err = FindJob(fileChunk.JobId)
+				Manager.Mutex.Lock()
 				if err != nil {
 					log.Fatal(err)
 					Manager.Mutex.Unlock()
@@ -238,16 +238,19 @@ func StartJob(jobId string) error {
 				fmt.Printf("Chunk %d for %s received and written\n", hash, fileChunk.ChunkIndex)
 		
 				if fileChunk.ChunkIndex == fileChunk.MaxChunk {
+					s.Close()
 					Manager.Mutex.Unlock()
 					return nil
 				}
 			
+				fmt.Printf("Creating next chunk request")
 				fileChunkReq := FileChunkRequest{
 					FileHash: hash,
 					ChunkIndex: fileChunk.ChunkIndex + 1,
 					JobId: fileChunk.JobId,
 				}
 			
+				fmt.Printf("Marshal next chunk request")
 				nextChunkReqBytes, err := json.Marshal(fileChunkReq)
 				if err != nil {
 					fmt.Println("Error:", err)
@@ -255,15 +258,18 @@ func StartJob(jobId string) error {
 					return err
 				}
 		
+				fmt.Printf("Prepare length header")
 				reqLengthHeader := make([]byte, 4)
 				binary.LittleEndian.PutUint32(reqLengthHeader, uint32(len(nextChunkReqBytes)))
+				fmt.Printf("Write length header")
 				_, err = s.Write(reqLengthHeader)
 				if err != nil {
 					fmt.Println(err)
 					Manager.Mutex.Unlock()
 					return err
 				}
-			
+
+				fmt.Printf("Write next chunk req bytes")
 				_, err = s.Write(nextChunkReqBytes)
 				if err != nil {
 					fmt.Println(err)
@@ -278,13 +284,6 @@ func StartJob(jobId string) error {
 	}
 	Manager.Mutex.Unlock()
 	return errors.New("Unable to find jobId: " + jobId)
-}
-
-//TODO send transaction
-func HandleLibp2pStream(s network.Stream) {
-	fmt.Println("debug we are handling stream")
-	defer s.Close()
-	
 }
 
 

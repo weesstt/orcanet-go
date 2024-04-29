@@ -30,7 +30,7 @@ type FileChunkRequest struct {
 type FileChunk struct {
 	FileHash        string `json:"fileHash"`
 	ChunkIndex           int `json:"chunkIndex"`
-	MaxChunk           int `json:"chunkIndex"`
+	MaxChunk           int `json:"maxChunk"`
 	JobId              string `json:"jobId"`
 	Data               []byte `json:"data"`
 }
