@@ -606,7 +606,7 @@ func readData(rw *bufio.ReadWriter){
 		payloadBytes = append(payloadBytes, 0xff)
 
 		fmt.Println("Writing to output stream")
-		err = rw.Write(payloadBytes)
+		_, err = rw.Write(payloadBytes)
 		if err != nil {
 			fmt.Printf("Error writing payload resp %s\n", err)
 		}
