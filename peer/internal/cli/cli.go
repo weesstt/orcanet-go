@@ -68,8 +68,7 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 	opts := []libp2p.Option{
 		libp2p.ListenAddrStrings(sourceMultiAddr.String()),
 		libp2p.Identity(libp2pPrivKey), //derive id from private key
-		libp2p.EnableHolePunching(),
-		libp2p.EnableRelayService(),
+		libp2p.EnableRelay(),
 	}
 
 	host, err := libp2p.New(opts...)
