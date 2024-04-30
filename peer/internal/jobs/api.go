@@ -45,6 +45,15 @@ type JobManager struct {
 
 var Manager JobManager
 
+func GetJobStatus(jobId string) string {
+	for _, job := range Manager.Jobs {
+		if job.JobId == jobId {
+			return job.Status
+		}
+	}
+	return ""
+}
+
 func InitPeriodicJobSave(host host.Host, fileInfoMap *map[string]fileshare.FileInfo) {
 	Manager = JobManager{
 		Jobs:    make([]Job, 0), // Initialize an empty slice of jobs
@@ -167,7 +176,7 @@ func StartJobsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, jobId := range jobIds {
-			err := StartJob(jobId.JobId, )
+			err := StartJob(jobId.JobId)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				writeStatusUpdate(w, err.Error())
