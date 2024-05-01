@@ -289,15 +289,3 @@ func FindJob(jobId string) (Job, error) {
 	Manager.Mutex.Unlock()
 	return Job{}, errors.New("unable to find job with specified jobId")
 }
-
-func FindJobByHash(file_hash string) (Job, error) {
-	Manager.Mutex.Lock()
-	for _, job := range Manager.Jobs {
-		if job.FileHash == file_hash {
-			Manager.Mutex.Unlock()
-			return job, nil
-		}
-	}
-	Manager.Mutex.Unlock()
-	return Job{}, errors.New("unable to find job with specified file hash")
-}
