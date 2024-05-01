@@ -130,6 +130,7 @@ func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walle
 	//Dial peer and start stream to request file
 	peerMA, err := multiaddr.NewMultiaddr(ip)
 	if err != nil {
+		fmt.Println("failed to get peer multiaddr")
 		log.Println(err)
 		orcaJobs.UpdateJobStatus(jobId, "terminated")
 		return err
@@ -137,6 +138,7 @@ func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walle
 
 	peer, err := peer.AddrInfoFromP2pAddr(peerMA)
 	if err != nil {
+		fmt.Println("failed to get addr info from p2p addr")
 		log.Println(err)
 		orcaJobs.UpdateJobStatus(jobId, "terminated")
 		return err
@@ -146,6 +148,7 @@ func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walle
 
 	err = client.Host.Connect(context.Background(), *peer)
 	if err != nil {
+		fmt.Println("failed to connect to peer")
 		log.Println(err)
 		orcaJobs.UpdateJobStatus(jobId, "terminated")
 		return err
@@ -153,6 +156,7 @@ func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walle
 
 	s, err := client.Host.NewStream(context.Background(), peer.ID, protocol.ID("orcanet-fileshare/1.0/" + file_hash))
 	if err != nil {
+		fmt.Println("failed to open stream")
 		log.Println(err)
 		orcaJobs.UpdateJobStatus(jobId, "terminated")
 		return err
@@ -170,6 +174,7 @@ func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walle
 	
 		nextChunkReqBytes, err := json.Marshal(fileChunkReq)
 		if err != nil {
+			fmt.Println("failed to marshal file chunk req")
 			fmt.Println("Error:", err)
 			orcaJobs.UpdateJobStatus(jobId, "terminated")
 			return err
@@ -179,6 +184,7 @@ func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walle
 		binary.LittleEndian.PutUint32(lengthBytes, uint32(len(nextChunkReqBytes)))
 		_, err = s.Write(lengthBytes)
 		if err != nil {
+			fmt.Println("failed to write header length bytes")
 			fmt.Println(err)
 			orcaJobs.UpdateJobStatus(jobId, "terminated")
 			return nil
@@ -186,6 +192,7 @@ func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walle
 		
 		_, err = s.Write(nextChunkReqBytes)
 		if err != nil {
+			fmt.Println("failed to write next chunk req bytes")
 			fmt.Println(err)
 			orcaJobs.UpdateJobStatus(jobId, "terminated")
 			return nil
@@ -196,6 +203,7 @@ func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walle
 		for i := 0; i < 4; i++ {
 			b, err := buf.ReadByte()
 			if err != nil {
+				fmt.Println("failed to read header length bytes")
 				fmt.Println(err)
 				orcaJobs.UpdateJobStatus(jobId, "terminated")
 				return err
@@ -207,6 +215,7 @@ func (client *Client) GetFileOnce(ip string, port int32, file_hash string, walle
 		payload := make([]byte, length)
 		_, err = io.ReadFull(buf, payload)
 		if err != nil {
+			fmt.Println("failed to read payload")
 			fmt.Println(err)
 			orcaJobs.UpdateJobStatus(jobId, "terminated")
 			return err

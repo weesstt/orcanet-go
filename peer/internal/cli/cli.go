@@ -90,8 +90,17 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 			hostMultiAddr = fmt.Sprintf("%s/p2p/%s", addr, host.ID())
 			fmt.Println(hostMultiAddr)
 		}
-		fmt.Printf("%s/p2p/%s\n", addr, host.ID())
 	}
+	if detectNAT() {
+		fmt.Println("Detected NAT, change Host address to use relay.")
+		addresses := []string{
+			"QmZyLQd66AYP9sPxGbdjqZ5Ys76ZBaFFJy5PwzXxosXz74",
+		}
+		selected := addresses[0]
+		hostMultiAddr = fmt.Sprintf("/p2p/%s/p2p-circuit/p2p/%s", selected, host.ID())
+	}
+
+	fmt.Println(hostMultiAddr)
 
 	Client = orcaClient.NewClient("files/names/")
 	Client.PrivateKey = privKey

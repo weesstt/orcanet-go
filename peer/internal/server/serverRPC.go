@@ -42,6 +42,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 )
 
 type FileShareServerNode struct {
@@ -90,14 +91,23 @@ func CreateMarketServer(privKey libp2pcrypto.PrivKey, dhtPort string, rpcPort st
 	for _, peerAddr := range bootstrapPeers {
 		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
 		wg.Add(1)
-		go func() {
+		go func(hostMultiAddr string) {
 			defer wg.Done()
 			if err := host.Connect(ctx, *peerinfo); err != nil {
 				fmt.Println("WARNING: ", err)
 			} else {
+				if strings.Contains(hostMultiAddr, peerinfo.ID.String()) {
+					_, err = client.Reserve(context.Background(), host, *peerinfo)
+					if err != nil {
+						log.Printf("Recieving peer failed to receive a relay reservation from %s. %v\n", peerinfo.ID.String(), err)
+						return
+					}
+					fmt.Printf("Established relay connection with bootstrap node %s\n", peerinfo.ID.String())
+				}
+
 				fmt.Println("Connection established with DHT bootstrap node:", *peerinfo)
 			}
-		}()
+		}(hostMultiAddr)
 	}
 	wg.Wait()
 
@@ -386,6 +396,7 @@ func HandleStoredFileStream(s network.Stream) {
 		for i := 0; i < 4; i++ {
 			b, err := buf.ReadByte()
 			if err != nil {
+				fmt.Println("failed to read header bytes")
 				fmt.Println(err)
 				return
 			}	
@@ -441,12 +452,14 @@ func HandleStoredFileStream(s network.Stream) {
 		binary.LittleEndian.PutUint32(respLengthHeader, uint32(len(payloadBytes)))
 		_, err = s.Write(respLengthHeader)
 		if err != nil {
+			fmt.Println("failed to write resp header bytes")
 			fmt.Println(err)
 			return
 		}
 
 		_, err = s.Write(payloadBytes)
 		if err != nil {
+			fmt.Println("failed to write payload bytes")
 			fmt.Println(err)
 			return
 		}
