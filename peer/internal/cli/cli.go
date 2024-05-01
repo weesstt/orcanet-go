@@ -3,10 +3,12 @@ package cli
 import (
 	"bufio"
 	"crypto/rsa"
+
 	// "crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
+
 	// "log"
 	"net"
 	"net/http"
@@ -18,13 +20,14 @@ import (
 
 	orcaStatus "orca-peer/internal/status"
 	orcaStore "orca-peer/internal/store"
-	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/multiformats/go-multiaddr"
-	"github.com/libp2p/go-libp2p"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/libp2p/go-libp2p"
+	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/multiformats/go-multiaddr"
 )
 
 var (
@@ -92,6 +95,18 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 	Client.PublicKey = pubKey
 	go orcaServer.StartServer(httpPort, rpcPort, serverReady, &confirming, &confirmation, libp2pPrivKey, passKey, startAPIRoutes, host)
 	<-serverReady
+
+	if detectNAT() {
+		addresses := []string{
+			"/ip4/194.113.73.99/tcp/44981/p2p/QmZyLQd66AYP9sPxGbdjqZ5Ys76ZBaFFJy5PwzXxosXz74",
+			"/ip4/209.151.148.27/tcp/44981/p2p/QmcAhU6MTzDeDvPhJgbk83PpT5dyB5LrZdSYaZW9K7gJm1",
+			"/ip4/209.151.155.108/tcp/44981/p2p/QmYGQgBaiukGEUYqsoLAVerqBooERL13btPnLDogshiWi4",
+		}
+		selected := addresses[0]
+		hostMultiAddr = fmt.Sprintf("%s/p2p-circuit/p2p/%s", selected, host.ID())
+		//hostMultiAddr, _ = multiaddr.NewMultiaddr(selected + "/p2p-circuit/p2p/" + host.ID())
+	}
+
 	fmt.Println("Welcome to Orcanet!")
 	fmt.Println("Dive In and Explore! Type 'help' for available commands.")
 
@@ -159,12 +174,12 @@ func StartCLI(bootstrapAddress *string, pubKey *rsa.PublicKey, privKey *rsa.Priv
 				// if err != nil {
 				// 	fmt.Printf("Error getting file %s", err)
 				// }
-				
+
 				_, err = Client.AddJob("localhost", httpPort, args[0], bestHolder.GetIp())
 				if err != nil {
 					fmt.Printf("Error getting file %s", err)
 				}
-				
+
 				// err = Client.StartJobs("localhost", httpPort, []string{jobId})
 				// if err != nil {
 				// 	fmt.Printf("Error getting file %s\n", err)

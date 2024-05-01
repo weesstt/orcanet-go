@@ -10,9 +10,11 @@ package server
 
 import (
 	"bufio"
-	"context"
-	"errors"
 	"bytes"
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -24,17 +26,16 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"encoding/json"
-	"encoding/binary"
 	"time"
+
 	"github.com/go-ping/ping"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	record "github.com/libp2p/go-libp2p-record"
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/multiformats/go-multiaddr"
@@ -43,7 +44,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
-	
+
+	// "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
+	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 )
 
 type FileShareServerNode struct {
@@ -53,13 +56,14 @@ type FileShareServerNode struct {
 	PubKey            libp2pcrypto.PubKey
 	V                 record.Validator
 	StoredFileInfoMap map[string]fileshare.FileInfo //This is the list of files we are storing
-	Host host.Host
+	Host              host.Host
 }
 
 var (
 	serverStruct FileShareServerNode
 	peerTable    map[string]PeerInfo
 	peerTableMUT sync.Mutex
+	relay1info   peer.AddrInfo // will potentially find a better place to put this later
 )
 
 func CreateMarketServer(rpcPort string, serverReady chan bool, fileShareServer *FileShareServerNode, host host.Host, pubKey libp2pcrypto.PubKey, privKey libp2pcrypto.PrivKey) {
@@ -87,8 +91,23 @@ func CreateMarketServer(rpcPort string, serverReady chan bool, fileShareServer *
 	// Let's connect to the bootstrap nodes first. They will tell us about the
 	// other nodes in the network.
 	var wg sync.WaitGroup
+	firstPeer := true
 	for _, peerAddr := range bootstrapPeers {
 		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
+
+		// Just using bootstrap 1 as the relay for now
+		if firstPeer {
+			relay1info := *peerinfo
+			firstPeer = false
+
+			// relay1info = peer.AddrInfo{
+			// 	ID:    relay1.ID(),
+			// 	Addrs: relay1.Addrs(),
+			// }
+
+			fmt.Println("Relay1 struct created for the first bootstrap peer:", relay1info)
+		}
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -287,6 +306,13 @@ func DiscoverPeers(ctx context.Context, h host.Host, kDHT *dht.IpfsDHT, advertis
 			if peer.ID == h.ID() {
 				continue // No self connection
 			}
+
+			_, err = client.Reserve(context.Background(), h, relay1info)
+			if err != nil {
+				log.Printf("Recieving peer failed to receive a relay reservation from relay1. %v", err)
+				return
+			}
+
 			h.Connect(ctx, peer)
 		}
 		time.Sleep(time.Second * 10)
@@ -372,7 +398,7 @@ func SetupRegisterFile(filePath string, fileName string, amountPerMB int64, host
 		return err
 	}
 
-	serverStruct.Host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/" + fileKey), HandleStoredFileStream)
+	serverStruct.Host.SetStreamHandler(protocol.ID("orcanet-fileshare/1.0/"+fileKey), HandleStoredFileStream)
 	return nil
 }
 
@@ -552,7 +578,7 @@ func HandleStoredFileStream(s network.Stream) {
 			if err != nil {
 				fmt.Println(err)
 				return
-			}	
+			}
 			lengthBytes = append(lengthBytes, b)
 		}
 
@@ -564,26 +590,26 @@ func HandleStoredFileStream(s network.Stream) {
 		err = json.Unmarshal(payload, &fileChunkReq)
 		if err != nil {
 			fmt.Println("Error unmarshaling JSON:", err)
-			return 
+			return
 		}
-		
+
 		orcaFileInfo := serverStruct.StoredFileInfoMap[fileChunkReq.FileHash]
 		chunkHash := orcaFileInfo.GetChunkHashes()[fileChunkReq.ChunkIndex]
 
 		file, err := os.Open("./files/stored/" + chunkHash)
 		if err != nil {
 			fmt.Println("Error:", err)
-			return 
+			return
 		}
 		defer file.Close()
 
 		fileChunk := orcaJobs.FileChunk{
-			FileHash: fileChunkReq.FileHash,
+			FileHash:   fileChunkReq.FileHash,
 			ChunkIndex: fileChunkReq.ChunkIndex,
-			MaxChunk: len(orcaFileInfo.GetChunkHashes()),
-			JobId: fileChunkReq.JobId,
+			MaxChunk:   len(orcaFileInfo.GetChunkHashes()),
+			JobId:      fileChunkReq.JobId,
 		}
-	
+
 		var chunkData bytes.Buffer
 
 		_, err = io.Copy(&chunkData, file)
@@ -594,7 +620,7 @@ func HandleStoredFileStream(s network.Stream) {
 
 		chunkDataBytes := chunkData.Bytes()
 		fileChunk.Data = chunkDataBytes
-		
+
 		payloadBytes, err := json.Marshal(fileChunk)
 		if err != nil {
 			fmt.Printf("Error marshaling json %s\n", err)
