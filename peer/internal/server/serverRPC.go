@@ -310,13 +310,14 @@ func DiscoverPeers(ctx context.Context, h host.Host, kDHT *dht.IpfsDHT, advertis
 			// 	return
 			// }
 
-			// Connect to relay1 --> This step currently doesn't work. Failing to dial empty peer ID
+			// Connect to relay1
 			log.Printf("Attempting to connect to relay with ID: %s, Addrs: %v", relay1info.ID, relay1info.Addrs)
 			if err := h.Connect(context.Background(), relay1info); err != nil {
 				log.Printf("Failed to connect host and relay1: %v", err)
 				return
 			}
 
+			// Non-optional step. Probably don't close it though? Will check more
 			h.SetStreamHandler("/customprotocol", func(s network.Stream) {
 				log.Println("Awesome! We're now communicating via the relay!")
 				// technically in the example the peer reads using
@@ -331,8 +332,23 @@ func DiscoverPeers(ctx context.Context, h host.Host, kDHT *dht.IpfsDHT, advertis
 				return
 			}
 
-			// host/peer multiaddress were already updated elsewhere so the connect() SHOULD be using the "new"
-			// addr that ties in the relay addr?
+			// Multiaddress was updated in peer/internal/internal/cli.go BUT
+			// I dont think we're actually updated it in h. Just stored it in dht.
+			// Technically, in the example, the new multiaddress was set up for the host AFTER it
+			// made a reservation with its old multiaddress
+
+			// Check if h is using the new multiaddress to connect to peers.
+			// When I set the multiaddress to ALWAYS update in cli.go, the following check confirms that
+			// we are NOT updating the multiaddress that h actually uses to connect
+			// Will look into it more later
+
+			fmt.Print("Multiaddress: ")
+			for _, addr := range h.Addrs() {
+				fmt.Printf("%s/p2p/%s\n", addr, h.ID())
+			}
+
+			log.Printf("Expected: /ip4/194.113.73.99/tcp/44981/p2p/QmZyLQd66AYP9sPxGbdjqZ5Ys76ZBaFFJy5PwzXxosXz74/p2p-circuit/p2p/%v", h.ID())
+
 			if err := h.Connect(ctx, peer); err != nil {
 				log.Printf("Failed to connect host and peer: %v", err)
 				return
