@@ -45,8 +45,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	// "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
+	// "github.com/libp2p/go-libp2p/core/network"
 )
 
 type FileShareServerNode struct {
@@ -88,25 +88,19 @@ func CreateMarketServer(rpcPort string, serverReady chan bool, fileShareServer *
 		panic(err)
 	}
 
+	// Will put in better place later
+	// Just adding 1st bootstrap as peer now
+	bootstrapAddr := "/ip4/194.113.73.99/tcp/44981/p2p/QmZyLQd66AYP9sPxGbdjqZ5Ys76ZBaFFJy5PwzXxosXz74"
+	maddr, _ := multiaddr.NewMultiaddr(bootstrapAddr)
+	peerInfo, _ := peer.AddrInfoFromP2pAddr(maddr)
+	relay1info = *peerInfo
+	log.Printf("Relay with ID: %s, Addrs: %v", relay1info.ID, relay1info.Addrs)
+
 	// Let's connect to the bootstrap nodes first. They will tell us about the
 	// other nodes in the network.
 	var wg sync.WaitGroup
-	firstPeer := true
 	for _, peerAddr := range bootstrapPeers {
 		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
-
-		// Just using bootstrap 1 as the relay for now
-		if firstPeer {
-			relay1info := *peerinfo
-			firstPeer = false
-
-			// relay1info = peer.AddrInfo{
-			// 	ID:    relay1.ID(),
-			// 	Addrs: relay1.Addrs(),
-			// }
-
-			fmt.Println("Relay1 struct created for the first bootstrap peer:", relay1info)
-		}
 
 		wg.Add(1)
 		go func() {
@@ -307,13 +301,44 @@ func DiscoverPeers(ctx context.Context, h host.Host, kDHT *dht.IpfsDHT, advertis
 				continue // No self connection
 			}
 
+			// The following code needs to be on the bootstrap server to enable relay services. relay1
+			// is of type Host:
+
+			// _, err = relay.New(relay1)
+			// if err != nil {
+			// 	log.Printf("Failed to instantiate the relay: %v", err)
+			// 	return
+			// }
+
+			// Connect to relay1 --> This step currently doesn't work. Failing to dial empty peer ID
+			log.Printf("Attempting to connect to relay with ID: %s, Addrs: %v", relay1info.ID, relay1info.Addrs)
+			if err := h.Connect(context.Background(), relay1info); err != nil {
+				log.Printf("Failed to connect host and relay1: %v", err)
+				return
+			}
+
+			h.SetStreamHandler("/customprotocol", func(s network.Stream) {
+				log.Println("Awesome! We're now communicating via the relay!")
+				// technically in the example the peer reads using
+				// s.Read(make([]byte, 1))
+				s.Close()
+			})
+
+			log.Printf("Connected to relay. Attempting to set a reservation with the relay")
 			_, err = client.Reserve(context.Background(), h, relay1info)
 			if err != nil {
 				log.Printf("Recieving peer failed to receive a relay reservation from relay1. %v", err)
 				return
 			}
 
-			h.Connect(ctx, peer)
+			// host/peer multiaddress were already updated elsewhere so the connect() SHOULD be using the "new"
+			// addr that ties in the relay addr?
+			if err := h.Connect(ctx, peer); err != nil {
+				log.Printf("Failed to connect host and peer: %v", err)
+				return
+			}
+
+			log.Println("Got to the end of the connection function. Reservation was set")
 		}
 		time.Sleep(time.Second * 10)
 	}
